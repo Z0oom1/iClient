@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>CRM DevHub | Gestão de Clientes e Projetos para Devs</title>
+  
+  <!-- SEO Meta Tags -->
+  <meta name="description" content="Dashboard premium de controle de clientes, projetos, reuniões e faturamento financeiro para desenvolvedores full stack.">
+  <meta name="theme-color" content="#1e1b4b">
+  
+  <!-- CSS Link -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ==========================================================================
+       1. Login Page (🔒 caio / 1414)
+       ========================================================================== -->
+  <div id="loginOverlay" class="login-overlay">
+    <div class="login-card" id="loginCard">
+      <div class="login-logo-wrap">
+        <img src="logo.png" alt="DevHub Logo" class="login-logo-img">
+        <div class="login-logo">DevHub</div>
+      </div>
+      <div class="login-subtitle">CRM exclusivo para Caio</div>
+      
+      <form id="loginForm" class="login-form" onsubmit="event.preventDefault(); handleLogin();">
+        <div class="input-group">
+          <label for="username">Usuário</label>
+          <div class="input-wrapper">
+            <!-- Icon User -->
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+            </svg>
+            <input type="text" id="username" autocomplete="username" placeholder="caio" required>
+          </div>
+        </div>
+        
+        <div class="input-group">
+          <label for="password">Senha</label>
+          <div class="input-wrapper">
+            <!-- Icon Lock -->
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+            </svg>
+            <input type="password" id="password" autocomplete="current-password" placeholder="••••" required>
+          </div>
+        </div>
+        
+        <button type="submit" class="login-btn" id="btnLogin">Entrar</button>
+      </form>
+      
+      <div id="loginError" class="login-error">Login ou senha inválidos. Tente novamente!</div>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       2. Toast Notifications Container
+       ========================================================================== -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- ==========================================================================
+       3. Main App Container
+       ========================================================================== -->
+  <div id="appContainer" class="app-container" style="display: none;">
+    
+    <!-- HEADER -->
+    <header class="app-header">
+      <div class="header-profile">
+        <div class="avatar" id="headerAvatar">C</div>
+        <div class="greeting-info">
+          <h2 id="headerGreeting">Olá, Caio</h2>
+          <p id="headerSubGreeting">Pronto para codar hoje?</p>
+        </div>
+      </div>
+      
+      <div class="header-actions">
+        <!-- Cloud Status Badge -->
+        <div class="cloud-status-badge local" id="cloudStatusBadge" onclick="goToSettingsTab()" title="Status da Sincronização em Nuvem (Supabase)">
+          <span class="status-dot"></span>
+          <span class="status-text">Local</span>
+        </div>
+        <div class="time-badge" id="liveTimeBadge">16:58</div>
+        
+        <!-- Bell Notification Button -->
+        <button class="btn-icon" id="btnNotificationHub" onclick="toggleNotificationList()" aria-label="Notificações de reuniões">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+          </svg>
+          <span class="badge-count" id="notificationBadgeCount" style="display: none;">0</span>
+        </button>
+
+        <!-- Logout Button -->
+        <button class="btn-icon" onclick="handleLogout()" aria-label="Sair" style="color: var(--danger);">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ==========================================================================
+         A. Dashboard View
+         ========================================================================== -->
+    <main id="viewDashboard" class="app-view active">
+      <div class="view-header-block">
+        <h1 class="view-title">Dashboard</h1>
+      </div>
+
+      <div class="dashboard-grid">
+        
+        <!-- Faturamento & Indicadores -->
+        <section class="summary-block">
+          <!-- Total Profit -->
+          <div class="metric-card">
+            <div class="metric-icon-wrap emerald">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 24px; height: 24px;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div class="metric-label">Lucro Total Acumulado</div>
+            <div class="metric-value" id="dashTotalProfit">R$ 0,00</div>
+          </div>
+
+          <!-- Estimated Monthly -->
+          <div class="metric-card">
+            <div class="metric-icon-wrap indigo">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 24px; height: 24px;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+              </svg>
+            </div>
+            <div class="metric-label">Estimativa Mensal</div>
+            <div class="metric-value" id="dashMonthlyProfit">R$ 0,00</div>
+          </div>
+
+          <!-- Average Project Info -->
+          <div class="metric-card">
+            <div class="metric-icon-wrap cyan">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 24px; height: 24px;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6M12 12m-9 0a9 9 0 1118 0 9 9 0 01-18 0zM12 17.25h.008v.008H12v-.008z" />
+              </svg>
+            </div>
+            <div class="metric-label">Projetos Ativos / Total</div>
+            <div class="metric-value" id="dashActiveTotalRatio">0 / 0</div>
+          </div>
+        </section>
+
+        <!-- Gráfico de Status do Projeto -->
+        <section class="chart-card">
+          <div class="chart-header">
+            <h3 class="chart-title">Status dos Projetos</h3>
+          </div>
+          
+          <div class="chart-container">
+            <!-- Custom CSS Circular SVG Donut Chart -->
+            <svg class="status-pie-chart" viewBox="0 0 42 42">
+              <circle cx="21" cy="21" r="15.915" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="6"></circle>
+              
+              <!-- Segments with dynamic dashes from app.js -->
+              <circle id="segIdealizando" class="pie-segment" cx="21" cy="21" r="15.915" stroke="var(--status-idealizando)" stroke-dasharray="0 100" stroke-dashoffset="0"></circle>
+              <circle id="segEstrutura" class="pie-segment" cx="21" cy="21" r="15.915" stroke="var(--status-estrutura)" stroke-dasharray="0 100" stroke-dashoffset="0"></circle>
+              <circle id="segTestes" class="pie-segment" cx="21" cy="21" r="15.915" stroke="var(--status-testes)" stroke-dasharray="0 100" stroke-dashoffset="0"></circle>
+              <circle id="segDeploy" class="pie-segment" cx="21" cy="21" r="15.915" stroke="var(--status-deploy)" stroke-dasharray="0 100" stroke-dashoffset="0"></circle>
+              <circle id="segManutencao" class="pie-segment" cx="21" cy="21" r="15.915" stroke="var(--status-manutencao)" stroke-dasharray="0 100" stroke-dashoffset="0"></circle>
+            </svg>
+          </div>
+
+          <div class="chart-legend">
+            <div class="legend-item"><span class="legend-bullet" style="background: var(--status-idealizando);"></span> Idealizando (<span id="countIdealizando">0</span>)</div>
+            <div class="legend-item"><span class="legend-bullet" style="background: var(--status-estrutura);"></span> Estrutura (<span id="countEstrutura">0</span>)</div>
+            <div class="legend-item"><span class="legend-bullet" style="background: var(--status-testes);"></span> Testes (<span id="countTestes">0</span>)</div>
+            <div class="legend-item"><span class="legend-bullet" style="background: var(--status-deploy);"></span> Deploy (<span id="countDeploy">0</span>)</div>
+            <div class="legend-item"><span class="legend-bullet" style="background: var(--status-manutencao);"></span> Manutenção (<span id="countManutencao">0</span>)</div>
+          </div>
+        </section>
+
+        <!-- Próximos Acompanhamentos/Reuniões -->
+        <section class="upcoming-meetings-card">
+          <div class="chart-header">
+            <h3 class="chart-title">Próximos Acompanhamentos</h3>
+          </div>
+          
+          <div class="upcoming-list" id="dashboardUpcomingList">
+            <!-- Dynamically populated upcoming events -->
+          </div>
+        </section>
+
+      </div>
+    </main>
+
+    <!-- ==========================================================================
+         B. Clients & Projects View
+         ========================================================================== -->
+    <main id="viewClientes" class="app-view">
+      <div class="view-header-block">
+        <h1 class="view-title">Clientes & Projetos</h1>
+        <button class="btn-primary" onclick="openAddClientModal()">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          Novo Cliente
+        </button>
+      </div>
+
+      <div class="search-filter-row">
+        <!-- Search bar -->
+        <div class="search-input-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.604 10.604z" />
+          </svg>
+          <input type="text" id="clientSearchInput" placeholder="Buscar por cliente, empresa ou projeto..." oninput="renderClientsList()">
+        </div>
+
+        <!-- Filter selection -->
+        <select id="clientFilterStatus" class="filter-select" onchange="renderClientsList()">
+          <option value="todos">Todos os Status</option>
+          <option value="Idealizando">Idealizando</option>
+          <option value="Estrutura sendo feita">Estrutura sendo feita</option>
+          <option value="Fase de testes">Fase de testes</option>
+          <option value="Deploy">Deploy</option>
+          <option value="Manutenção">Manutenção</option>
+        </select>
+      </div>
+
+      <div class="clients-grid" id="clientsContainer">
+        <!-- Dynamically populated client cards -->
+      </div>
+    </main>
+
+    <!-- ==========================================================================
+         C. Timeline Agenda View
+         ========================================================================== -->
+    <main id="viewAgenda" class="app-view">
+      <div class="view-header-block">
+        <h1 class="view-title">Linha do Tempo de Contatos</h1>
+      </div>
+
+      <div class="timeline-container" id="timelineContainer">
+        <!-- Dynamic nodes representing Primeiros Contatos and Próximos Contatos -->
+      </div>
+    </main>
+
+    <!-- ==========================================================================
+         D. Reminders & Notes View
+         ========================================================================== -->
+    <main id="viewLembretes" class="app-view">
+      <div class="view-header-block">
+        <h1 class="view-title">Lembretes & Notas</h1>
+      </div>
+
+      <div class="lembretes-layout">
+        <!-- To-Do List Card -->
+        <section class="lembretes-card">
+          <h2 style="font-size: 1.2rem; margin-bottom: 16px;">Lista de Lembretes</h2>
+          
+          <div class="todo-input-row">
+            <input type="text" id="todoInputText" placeholder="Adicionar nova tarefa para hoje..." onkeypress="handleTodoKeypress(event)">
+            <button class="btn-primary" style="padding: 10px 16px;" onclick="addTodoItem()" aria-label="Adicionar lembrete">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 16px; height: 16px;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="todo-list-wrap" id="todoListWrap">
+            <!-- Dynamically populated todo items -->
+          </div>
+        </section>
+
+        <!-- Developer Notepad Scratchpad -->
+        <section class="notes-card">
+          <h2 style="font-size: 1.2rem; margin-bottom: 6px;">Bloco de Notas Rápido</h2>
+          <p style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 16px;">Salva automaticamente enquanto você escreve. Perfeito para snippets, ideias rápidas ou payloads.</p>
+          
+          <textarea id="notesScratchpad" class="scratchpad-area" placeholder="Digite suas anotações aqui..." oninput="saveScratchpad()"></textarea>
+          
+          <div class="scratchpad-meta" id="scratchpadSaveTime">
+            Última alteração: nunca
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- ==========================================================================
+         E. Settings View
+         ========================================================================== -->
+    <main id="viewConfiguracoes" class="app-view">
+      <div class="view-header-block">
+        <h1 class="view-title">Configurações</h1>
+      </div>
+
+      <div class="settings-container">
+        
+        <!-- Nuvem & Sincronização (Supabase) -->
+        <section class="settings-card">
+          <h2 class="settings-section-title">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+            </svg>
+            Sincronização em Nuvem (Supabase)
+          </h2>
+          <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 16px;">
+            Salve seus dados em nuvem gratuitamente para persistência infinita no Vercel. 
+            Suas credenciais são guardadas localmente no seu navegador de forma segura.
+          </p>
+
+          <div class="settings-form-row" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="supabaseUrlInput" style="display: block; font-size: 0.8rem; color: var(--text-secondary); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.03em;">Supabase API URL</label>
+              <input type="url" id="supabaseUrlInput" placeholder="https://xxxxxxxxxxxxxxxxxxxx.supabase.co" style="width: 100%; padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: var(--border-radius-sm); color: var(--text-primary); font-size: 0.95rem; transition: all 0.25s;">
+            </div>
+            
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="supabaseKeyInput" style="display: block; font-size: 0.8rem; color: var(--text-secondary); font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.03em;">Supabase Anon Key</label>
+              <input type="password" id="supabaseKeyInput" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." style="width: 100%; padding: 12px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: var(--border-radius-sm); color: var(--text-primary); font-size: 0.95rem; transition: all 0.25s;">
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 10px; margin-top: 16px;">
+            <button class="btn-primary" onclick="connectSupabaseCloud()">Conectar & Sincronizar</button>
+            <button class="btn-secondary" id="btnDisconnectSupabase" onclick="disconnectSupabaseCloud()" style="display: none;">Desconectar Nuvem</button>
+          </div>
+
+          <!-- Tutorial e Instruções SQL -->
+          <div class="sql-instructions-wrap" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 16px;">
+            <h3 style="font-size: 0.9rem; color: var(--text-primary); margin-bottom: 8px;">Como Configurar o Banco de Dados Gratuito:</h3>
+            <ol style="color: var(--text-secondary); font-size: 0.8rem; padding-left: 16px; line-height: 1.4; margin-bottom: 12px;">
+              <li>Crie uma conta gratuita em <a href="https://supabase.com" target="_blank" style="color: var(--primary); text-decoration: underline;">supabase.com</a> e crie um novo projeto.</li>
+              <li>Acesse o <strong>SQL Editor</strong> do Supabase no menu lateral esquerdo.</li>
+              <li>Crie uma <strong>New Query</strong>, copie e cole o código SQL abaixo e clique em <strong>Run</strong>:</li>
+            </ol>
+            
+            <textarea readonly class="sql-code-area" onclick="this.select();" style="width: 100%; height: 120px; font-family: monospace; font-size: 0.75rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 10px; color: var(--info); resize: none; overflow-y: auto;">-- 1. Tabela de Clientes
+CREATE TABLE IF NOT EXISTS public.clients (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    company TEXT,
+    email TEXT,
+    phone TEXT,
+    project_name TEXT NOT NULL,
+    project_type TEXT NOT NULL,
+    project_status TEXT NOT NULL,
+    project_git TEXT,
+    project_deploy TEXT,
+    project_cost NUMERIC,
+    project_hours INTEGER,
+    date_first_contact TEXT NOT NULL,
+    date_next_contact TEXT,
+    notes TEXT,
+    git_cached_data JSONB,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 2. Tabela de Lembretes (To-Dos)
+CREATE TABLE IF NOT EXISTS public.todos (
+    id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    completed BOOLEAN DEFAULT false NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 3. Tabela do Bloco de Notas (Scratchpad)
+CREATE TABLE IF NOT EXISTS public.scratchpad (
+    id TEXT PRIMARY KEY DEFAULT 'single_notes',
+    content TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);</textarea>
+            <p style="color: var(--text-muted); font-size: 0.7rem; margin-top: 4px;">💡 Clique no código acima para selecioná-lo por completo e copiar.</p>
+          </div>
+        </section>
+        
+        <!-- Integrations (GitHub Token) -->
+        <section class="settings-card">
+          <h2 class="settings-section-title">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+            </svg>
+            Integração GitHub API
+          </h2>
+          <div class="settings-row">
+            <label for="githubTokenInput">Personal Access Token (Opcional)</label>
+            <input type="password" id="githubTokenInput" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+            <p style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 6px;">Necessário apenas se você desejar puxar informações automáticas de **repositórios privados**. Deixe em branco para utilizar requisições públicas.</p>
+          </div>
+          
+          <button class="btn-primary" onclick="saveGithubToken()">Salvar Token</button>
+        </section>
+
+        <!-- Backups (Export/Import JSON) -->
+        <section class="settings-card">
+          <h2 class="settings-section-title">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9.75v6.75m0 0l-3-3m3 3l3-3m-8.25 6a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+            </svg>
+            Importação & Exportação de Dados
+          </h2>
+          <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 20px;">Todos os seus dados estão salvos localmente. Exporte um backup em JSON para guardar com segurança ou transfira para outro dispositivo.</p>
+          
+          <div class="settings-actions">
+            <!-- Export btn -->
+            <button class="btn-secondary" onclick="exportDataToJSON()">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+              Exportar Backup JSON
+            </button>
+            
+            <!-- Import wrapper -->
+            <button class="btn-secondary" onclick="document.getElementById('importFileInput').click()">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" style="transform: rotate(180deg); transform-origin: center;" />
+              </svg>
+              Importar Backup JSON
+            </button>
+            <input type="file" id="importFileInput" style="display: none;" accept=".json" onchange="importDataFromJSON(event)">
+          </div>
+        </section>
+
+        <!-- Danger Zone -->
+        <section class="settings-card" style="border-color: rgba(239, 68, 68, 0.2);">
+          <h2 class="settings-section-title" style="color: var(--danger);">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            Zona de Perigo
+          </h2>
+          <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 20px;">Apaga permanentemente todos os clientes, contatos, tarefas e notas gravados. Esta operação não pode ser desfeita!</p>
+          
+          <button class="btn-danger" onclick="wipeAllDatabaseData()">
+            Apagar Banco de Dados Local
+          </button>
+        </section>
+
+      </div>
+    </main>
+
+    <!-- ==========================================================================
+         4. Bottom Tab Bar Navigation (iOS HIG)
+         ========================================================================== -->
+    <nav class="tabbar" role="navigation" aria-label="Menu principal">
+      <a class="tab-item active" onclick="switchActiveTab('viewDashboard', this)" aria-label="Aba Dashboard">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+        </svg>
+        <span>Início</span>
+      </a>
+      
+      <a class="tab-item" onclick="switchActiveTab('viewClientes', this)" aria-label="Aba Clientes">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+        </svg>
+        <span>Clientes</span>
+      </a>
+
+      <a class="tab-item" onclick="switchActiveTab('viewAgenda', this)" aria-label="Aba Agenda">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span>Agenda</span>
+      </a>
+
+      <a class="tab-item" onclick="switchActiveTab('viewLembretes', this)" aria-label="Aba Lembretes">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M11.35 3.836c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.03 0 1.9.693 2.166 1.636m-5.8 0A2.25 2.25 0 0010.5 6v13.5a2.25 2.25 0 002.25 2.25h3a2.25 2.25 0 002.25-2.25V6a2.25 2.25 0 00-2.25-2.25M6.75 6.75h.008v.008H6.75V6.75zM6.75 9.75h.008v.008H6.75V9.75zm0 3h.008v.008H6.75v-.008zm0 3h.008v.008H6.75v-.008z" />
+        </svg>
+        <span>Lembretes</span>
+      </a>
+
+      <a class="tab-item" onclick="switchActiveTab('viewConfiguracoes', this)" aria-label="Aba Configurações">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.43l-1.003.828c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.43l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.991l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+        <span>Ajustes</span>
+      </a>
+    </nav>
+
+  </div>
+
+  <!-- ==========================================================================
+       5. Modal: Adicionar / Editar Cliente (iOS Drawer Sheet)
+       ========================================================================== -->
+  <div id="modalClientForm" class="modal-overlay" onclick="closeClientFormModal(event)">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 class="modal-title" id="clientFormModalTitle">Adicionar Novo Cliente</h3>
+        <button class="btn-icon" onclick="closeClientFormModal(null)" aria-label="Fechar modal" style="width: 32px; height: 32px; border-radius: 50%;">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 16px; height: 16px;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <form id="clientForm" onsubmit="event.preventDefault(); saveClientData();">
+          <input type="hidden" id="formClientId">
+          
+          <div class="form-grid">
+            <!-- Client Basic Info -->
+            <div class="form-group">
+              <label for="formClientName">Nome do Cliente *</label>
+              <input type="text" id="formClientName" placeholder="Ex: Caio Rodrigues" required>
+            </div>
+
+            <div class="form-group">
+              <label for="formClientCompany">Empresa / Organização</label>
+              <input type="text" id="formClientCompany" placeholder="Ex: Tech Solutions">
+            </div>
+
+            <div class="form-group">
+              <label for="formClientEmail">E-mail</label>
+              <input type="email" id="formClientEmail" placeholder="cliente@email.com">
+            </div>
+
+            <div class="form-group">
+              <label for="formClientPhone">Telefone / WhatsApp</label>
+              <input type="text" id="formClientPhone" placeholder="(11) 99999-9999">
+            </div>
+
+            <!-- Project Details -->
+            <div class="form-group">
+              <label for="formProjectName">Nome do Projeto *</label>
+              <input type="text" id="formProjectName" placeholder="Ex: App Web Delivery" required>
+            </div>
+
+            <div class="form-group">
+              <label for="formProjectType">Categoria do Projeto *</label>
+              <select id="formProjectType" required>
+                <option value="Sistema">Sistema</option>
+                <option value="Site">Site</option>
+                <option value="App">App</option>
+                <option value="Software">Software</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="formProjectStatus">Status do Projeto *</label>
+              <select id="formProjectStatus" required>
+                <option value="Idealizando">Idealizando</option>
+                <option value="Estrutura sendo feita">Estrutura sendo feita</option>
+                <option value="Fase de testes">Fase de testes</option>
+                <option value="Deploy">Deploy</option>
+                <option value="Manutenção">Manutenção</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="formProjectGit">URL do Repositório Git</label>
+              <input type="text" id="formProjectGit" placeholder="Ex: facebook/react ou url completa">
+            </div>
+
+            <div class="form-group">
+              <label for="formProjectDeploy">URL do Deploy</label>
+              <input type="url" id="formProjectDeploy" placeholder="Ex: https://meusite.com">
+            </div>
+
+            <!-- Financial and time details (Optional) -->
+            <div class="form-group">
+              <label for="formProjectCost">Valor Cobrado (R$)</label>
+              <input type="number" id="formProjectCost" step="0.01" placeholder="Ex: 5000.00">
+            </div>
+
+            <div class="form-group">
+              <label for="formProjectHours">Horas Estimadas / Trabalhadas</label>
+              <input type="number" id="formProjectHours" placeholder="Ex: 80">
+            </div>
+
+            <!-- Dates -->
+            <div class="form-group">
+              <label for="formContactFirst">Data Primeiro Contato *</label>
+              <input type="datetime-local" id="formContactFirst" required>
+            </div>
+
+            <div class="form-group">
+              <label for="formContactNext">Data Próximo Contato</label>
+              <input type="datetime-local" id="formContactNext">
+            </div>
+
+            <!-- Custom notes -->
+            <div class="form-group col-span-2">
+              <label for="formProjectNotes">Observações & Anotações do Projeto</label>
+              <textarea id="formProjectNotes" placeholder="Anotações gerais sobre o escopo, requisitos e acordos com o cliente..."></textarea>
+            </div>
+
+          </div>
+          
+          <!-- Hidden submit to capture form validate -->
+          <button type="submit" id="submitFormBtn" style="display:none;"></button>
+        </form>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeClientFormModal(null)">Cancelar</button>
+        <button class="btn-primary" onclick="document.getElementById('submitFormBtn').click()">Salvar Alterações</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       6. Modal: Detalhes do Cliente (Visualização Rica & Sincronização Git)
+       ========================================================================== -->
+  <div id="modalClientDetails" class="modal-overlay" onclick="closeClientDetailsModal(event)">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+      <div class="modal-header" style="border-bottom: none; padding-bottom: 0;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div class="client-initials" id="detailInitials" style="width: 48px; height: 48px; font-size: 1.2rem;">CR</div>
+          <div>
+            <h3 class="modal-title" id="detailClientName" style="font-size: 1.3rem;">Caio Rodrigues</h3>
+            <p id="detailClientCompany" style="color: var(--text-secondary); font-size: 0.85rem;">Tech Solutions</p>
+          </div>
+        </div>
+        <button class="btn-icon" onclick="closeClientDetailsModal(null)" aria-label="Fechar detalhes" style="width: 32px; height: 32px; border-radius: 50%;">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 16px; height: 16px;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body" style="padding-top: 10px;">
+        <div class="form-grid">
+          
+          <!-- Left Column - Client details -->
+          <div class="form-group" style="margin-bottom: 8px;">
+            <div class="detail-field">
+              <div class="detail-label">Contato</div>
+              <div class="detail-value" id="detailContactInfo">
+                <!-- Tel / Email -->
+              </div>
+            </div>
+            
+            <div class="detail-field">
+              <div class="detail-label">Projeto Principal</div>
+              <div class="detail-value">
+                <span id="detailProjectName" style="font-weight: 600;">App Web Delivery</span> 
+                <span class="category-tag" id="detailProjectType">App</span>
+              </div>
+            </div>
+
+            <div class="detail-field">
+              <div class="detail-label">Status do Projeto</div>
+              <div style="margin-top: 4px;">
+                <span class="status-badge" id="detailProjectStatus">Idealizando</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column - Finance & Dates -->
+          <div class="form-group" style="margin-bottom: 8px;">
+            <div class="detail-field">
+              <div class="detail-label">Dados Financeiros</div>
+              <div class="detail-value" id="detailFinanceInfo">
+                Valor: R$ 0,00 | Horas: 0
+              </div>
+            </div>
+
+            <div class="detail-field">
+              <div class="detail-label">Agenda de Contatos</div>
+              <div class="detail-value" style="font-size: 0.9rem;">
+                📅 <strong>Primeiro:</strong> <span id="detailDateFirst">-</span><br>
+                ⏱️ <strong>Próximo:</strong> <span id="detailDateNext">-</span>
+              </div>
+            </div>
+
+            <div class="detail-field" id="detailDeployField" style="display: none;">
+              <div class="detail-label">Link de Deploy</div>
+              <div class="detail-value">
+                🚀 <a id="detailDeployLink" href="#" target="_blank">Acessar Projeto Publicado</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Notes Section -->
+          <div class="form-group col-span-2" style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 16px; margin-bottom: 0;">
+            <div class="detail-label">Observações do Projeto</div>
+            <div class="detail-value" id="detailNotes" style="font-size: 0.9rem; white-space: pre-wrap; background: rgba(0,0,0,0.15); padding: 12px; border-radius: var(--border-radius-sm); border: 1px solid rgba(255,255,255,0.02); max-height: 120px; overflow-y: auto;">
+              Nenhuma anotação disponível.
+            </div>
+          </div>
+
+          <!-- GitHub Synced Info Section (WOW element) -->
+          <div class="form-group col-span-2" id="detailGitCard" style="display: none; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 16px; margin-bottom: 0;">
+            <div class="detail-label">Dados Sincronizados do GitHub</div>
+            <div class="git-badge synced" style="margin-bottom: 0; display: block; padding: 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <!-- GitHub Icon -->
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                    <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+                  </svg>
+                  <strong id="detailGitRepoName">facebook/react</strong>
+                </div>
+                <button class="btn-secondary" id="btnSyncGitRepo" onclick="syncGitRepositoryDetails()" style="min-height: 32px; padding: 4px 10px; font-size: 0.75rem; border-radius: 6px;">
+                  Sincronizar Agora
+                </button>
+              </div>
+              
+              <div id="gitDetailsLoader" style="display: none; text-align: center; padding: 10px 0;">
+                <p style="font-size: 0.8rem; color: var(--text-secondary);">Buscando informações no repositório...</p>
+              </div>
+              
+              <div id="gitDetailsContent" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; font-size: 0.8rem;">
+                <div style="background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px;">
+                  <div style="color: var(--text-muted);">Linguagem</div>
+                  <strong id="gitLang" style="color: var(--info);">-</strong>
+                </div>
+                <div style="background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px;">
+                  <div style="color: var(--text-muted);">Estrelas ⭐</div>
+                  <strong id="gitStars">-</strong>
+                </div>
+                <div style="background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px;">
+                  <div style="color: var(--text-muted);">Open Issues ⚠️</div>
+                  <strong id="gitIssues" style="color: var(--warning);">-</strong>
+                </div>
+                <div class="col-span-2" style="background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px; grid-column: span 3; text-align: left;">
+                  <div style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 4px;">Último Commit</div>
+                  <div id="gitLastCommitMsg" style="font-weight: 500; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-primary);">-</div>
+                  <div id="gitLastCommitDate" style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">-</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="modal-footer" style="border-top: none; padding-top: 0;">
+        <button class="btn-danger" id="btnDeleteClientDetails" onclick="deleteClientFromDetails()" style="margin-right: auto;">Apagar Cliente</button>
+        <!-- WhatsApp Button -->
+        <button class="btn-whatsapp" id="btnWhatsappContact" onclick="contactClientWhatsApp(activeDetailClientId)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.455L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.825 1.451 5.436 0 9.858-4.42 9.86-9.86.001-2.636-1.026-5.112-2.893-6.98C16.573 1.897 14.1 .869 11.468.868 6.03.868 1.61 5.289 1.608 10.729c-.001 1.718.453 3.393 1.31 4.887l-1.012 3.693 3.791-.994c1.478.807 3.12 1.239 4.743 1.239-.001 0-.001 0 0 0zm10.967-7.493c-.3-.15-1.77-.874-2.043-.974-.275-.102-.475-.152-.674.152-.2.302-.776.974-.95 1.176-.176.202-.351.226-.651.077-.3-.15-1.267-.467-2.414-1.492-.893-.797-1.495-1.782-1.67-2.083-.176-.3-.019-.462.13-.61.135-.133.301-.352.451-.527.15-.176.2-.3.3-.5.101-.2.05-.376-.025-.526-.076-.15-.675-1.627-.925-2.227-.244-.588-.492-.507-.675-.516-.174-.008-.375-.01-.576-.01-.2 0-.525.075-.8.376-.275.301-1.05 1.027-1.05 2.507 0 1.481 1.075 2.913 1.225 3.113.15.2 2.113 3.227 5.113 4.527.714.31 1.272.495 1.707.634.717.228 1.37.195 1.887.118.577-.087 1.77-.724 2.02-.142.25-.376.25-.699.175-.774-.075-.075-.275-.15-.575-.3z"/>
+          </svg>
+          WhatsApp
+        </button>
+        <button class="btn-secondary" onclick="closeClientDetailsModal(null)">Fechar</button>
+        <button class="btn-primary" id="btnEditClientDetails" onclick="editClientFromDetails()">Editar Dados</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JS Logic -->
+  <script src="app.js"></script>
+</body>
+</html>
