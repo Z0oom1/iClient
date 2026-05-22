@@ -9,8 +9,33 @@ let todos = [];
 let githubToken = "";
 let alertedMeetings = new Set(); // Tracks meetings that already fired desktop notifications
 
+// Multi-User state variables
+let activeUser = null;
+let verificationCode = "";
+let verificationType = ""; // 'register' or 'recover'
+let verificationTargetUser = null; // Temp user storage
+let selectedLogoBase64 = ""; // Loaded company logo from file selector
+
 // Helper: Get element by ID
 const $ = (id) => document.getElementById(id);
+
+// Scoping Helper: scopes localstorage keys by user email
+function getUserKey(key) {
+  if (activeUser && activeUser.email) {
+    return `${key}_${activeUser.email}`;
+  }
+  return key;
+}
+
+// Scoping Helper: gets company/user initials
+function getInitials(text) {
+  if (!text) return 'MC';
+  const parts = text.trim().split(/\s+/);
+  if (parts.length > 1) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return text.substring(0, 2).toUpperCase();
+}
 
 // ==========================================================================
 // 1. Initializer & Auth
@@ -20,32 +45,7 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 function initApp() {
-  // Load data from LocalStorage
-  clients = JSON.parse(localStorage.getItem('crm_clients')) || getMockData();
-  todos = JSON.parse(localStorage.getItem('crm_todos')) || getMockTodos();
-  githubToken = localStorage.getItem('crm_github_token') || "";
-  
-  // Set values in config tab if elements exist
-  if ($('githubTokenInput')) {
-    $('githubTokenInput').value = githubToken;
-  }
-  
-  // Load Notes Scratchpad
-  if ($('notesScratchpad')) {
-    const savedNotes = localStorage.getItem('crm_scratchpad') || "";
-    $('notesScratchpad').value = savedNotes;
-    if (savedNotes) {
-      $('scratchpadSaveTime').innerText = `Última alteração: ${localStorage.getItem('crm_scratchpad_time') || 'carregado'}`;
-    }
-  }
-
-  // Initialize Supabase Sync Engine
-  SupabaseSyncEngine.init();
-  if (SupabaseSyncEngine.active) {
-    SupabaseSyncEngine.pullAll();
-  }
-
-  // Check auth
+  // Check active user session first
   checkAuth();
   
   // Start clock & greeting engine
@@ -62,9 +62,74 @@ function initApp() {
   }
 }
 
+function loadScopedUserData() {
+  if (!activeUser) return;
+  
+  clients = JSON.parse(localStorage.getItem(getUserKey('crm_clients'))) || [];
+  todos = JSON.parse(localStorage.getItem(getUserKey('crm_todos'))) || [];
+  githubToken = localStorage.getItem(getUserKey('crm_github_token')) || "";
+  
+  // Set values in config tab if elements exist
+  if ($('githubTokenInput')) {
+    $('githubTokenInput').value = githubToken;
+  }
+  
+  // Load Notes Scratchpad
+  if ($('notesScratchpad')) {
+    const savedNotes = localStorage.getItem(getUserKey('crm_scratchpad')) || "";
+    $('notesScratchpad').value = savedNotes;
+    if (savedNotes) {
+      $('scratchpadSaveTime').innerText = `Última alteração: ${localStorage.getItem(getUserKey('crm_scratchpad_time')) || 'carregado'}`;
+    } else {
+      $('scratchpadSaveTime').innerText = `Última alteração: nunca`;
+    }
+  }
+
+  // Initialize Supabase Sync Engine
+  SupabaseSyncEngine.init();
+  if (SupabaseSyncEngine.active) {
+    SupabaseSyncEngine.pullAll();
+  }
+}
+
 function checkAuth() {
-  const loggedIn = localStorage.getItem('crm_devhub_logged_in') === 'true';
-  if (loggedIn) {
+  const sessionStr = localStorage.getItem('crm_active_user');
+  if (sessionStr) {
+    activeUser = JSON.parse(sessionStr);
+    
+    // Load scoped data
+    loadScopedUserData();
+
+    // Set company details in header
+    if ($('headerGreeting')) {
+      const nameParts = activeUser.name.split(' ');
+      const firstName = nameParts[0] || 'Usuário';
+      const now = new Date();
+      const hour = now.getHours();
+      let greeting = `Olá, ${firstName}`;
+      let sub = 'Pronto para codar hoje?';
+      if (hour >= 5 && hour < 12) {
+        greeting = `Bom dia, ${firstName} ☕`;
+      } else if (hour >= 12 && hour < 18) {
+        greeting = `Boa tarde, ${firstName} 💻`;
+      } else {
+        greeting = `Boa noite, ${firstName} 🌙`;
+      }
+      $('headerGreeting').innerText = greeting;
+    }
+
+    if (activeUser.logo) {
+      $('headerCompanyLogo').src = activeUser.logo;
+      $('headerCompanyLogo').style.display = 'block';
+      $('headerAvatar').style.display = 'none';
+    } else {
+      $('headerAvatar').innerText = getInitials(activeUser.company || activeUser.name);
+      $('headerAvatar').style.display = 'flex';
+      $('headerCompanyLogo').style.display = 'none';
+    }
+
+    removeLogoSelect(null);
+
     $('loginOverlay').style.display = 'none';
     $('appContainer').style.display = 'flex';
     
@@ -74,20 +139,30 @@ function checkAuth() {
     renderTimeline();
     renderTodoList();
   } else {
+    activeUser = null;
     $('loginOverlay').style.display = 'flex';
     $('appContainer').style.display = 'none';
+    showLoginView();
   }
 }
 
 function handleLogin() {
-  const user = $('username').value.trim();
-  const pass = $('password').value;
+  const emailInput = $('loginEmail').value.trim().toLowerCase();
+  const passwordInput = $('loginPassword').value;
   const loginCard = $('loginCard');
   const errorMsg = $('loginError');
 
-  if (user.toLowerCase() === 'caio' && pass === '1414') {
-    localStorage.setItem('crm_devhub_logged_in', 'true');
-    showToast('Acesso concedido. Bem-vindo, Caio! 🚀', 'success');
+  // Find user in crm_users list
+  const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+  const foundUser = users.find(u => u.email.toLowerCase() === emailInput && u.password === passwordInput);
+
+  if (foundUser) {
+    // Session save
+    localStorage.setItem('crm_active_user', JSON.stringify(foundUser));
+    activeUser = foundUser;
+    
+    loadScopedUserData();
+    showToast(`Bem-vindo de volta, ${foundUser.name}! 🚀`, 'success');
     
     // Smooth transition
     $('loginOverlay').style.opacity = 0;
@@ -98,6 +173,7 @@ function handleLogin() {
   } else {
     // Shake animation
     loginCard.classList.add('shake');
+    errorMsg.innerText = "E-mail ou senha incorretos. Tente novamente!";
     errorMsg.classList.add('visible');
     
     setTimeout(() => {
@@ -107,9 +183,346 @@ function handleLogin() {
 }
 
 function handleLogout() {
-  localStorage.removeItem('crm_devhub_logged_in');
+  localStorage.removeItem('crm_active_user');
+  activeUser = null;
   showToast('Sessão encerrada com sucesso.', 'info');
   checkAuth();
+}
+
+// --- Dynamic View Routing Functions for Auth Screens ---
+function showLoginView() {
+  $('loginView').style.display = 'block';
+  $('registerView').style.display = 'none';
+  $('forgotPasswordView').style.display = 'none';
+  $('verificationView').style.display = 'none';
+  $('resetPasswordView').style.display = 'none';
+  $('loginError').classList.remove('visible');
+}
+
+function showRegisterView() {
+  $('loginView').style.display = 'none';
+  $('registerView').style.display = 'block';
+  $('forgotPasswordView').style.display = 'none';
+  $('verificationView').style.display = 'none';
+  $('resetPasswordView').style.display = 'none';
+  $('loginError').classList.remove('visible');
+  removeLogoSelect(null);
+}
+
+function showForgotPasswordView() {
+  $('loginView').style.display = 'none';
+  $('registerView').style.display = 'none';
+  $('forgotPasswordView').style.display = 'block';
+  $('verificationView').style.display = 'none';
+  $('resetPasswordView').style.display = 'none';
+  $('loginError').classList.remove('visible');
+}
+
+function showVerificationView(subtitleText) {
+  $('loginView').style.display = 'none';
+  $('registerView').style.display = 'none';
+  $('forgotPasswordView').style.display = 'none';
+  $('verificationView').style.display = 'block';
+  $('resetPasswordView').style.display = 'none';
+  $('loginError').classList.remove('visible');
+  
+  if (subtitleText) {
+    $('verificationSubtitle').innerText = subtitleText;
+  }
+  $('verificationCodeInput').value = "";
+}
+
+function showResetPasswordView() {
+  $('loginView').style.display = 'none';
+  $('registerView').style.display = 'none';
+  $('forgotPasswordView').style.display = 'none';
+  $('verificationView').style.display = 'none';
+  $('resetPasswordView').style.display = 'block';
+  $('loginError').classList.remove('visible');
+}
+
+function cancelVerification() {
+  verificationCode = "";
+  verificationType = "";
+  verificationTargetUser = null;
+  showLoginView();
+}
+
+// --- Logo Selection Handlers (FileReader & Base64 preview) ---
+function handleLogoSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    showToast('Por favor, selecione uma imagem válida.', 'error');
+    return;
+  }
+
+  if (file.size > 2 * 1024 * 1024) {
+    showToast('A imagem deve ter no máximo 2MB.', 'error');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    selectedLogoBase64 = e.target.result;
+    
+    // Display preview
+    $('logoPreviewImg').src = selectedLogoBase64;
+    $('logoPreviewContainer').style.display = 'block';
+    $('uploadPlaceholder').style.display = 'none';
+    
+    showToast('Logotipo carregado com sucesso!', 'success');
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeLogoSelect(event) {
+  if (event) event.stopPropagation();
+  selectedLogoBase64 = "";
+  if ($('regCompanyLogo')) $('regCompanyLogo').value = "";
+  if ($('logoPreviewImg')) $('logoPreviewImg').src = "";
+  if ($('logoPreviewContainer')) $('logoPreviewContainer').style.display = 'none';
+  if ($('uploadPlaceholder')) $('uploadPlaceholder').style.display = 'flex';
+}
+
+// --- Auth Actions: Register, Recovery PIN generation & Gmail Inbox Simulator ---
+function handleRegister() {
+  const name = $('regName').value.trim();
+  const email = $('regEmail').value.trim().toLowerCase();
+  const password = $('regPassword').value;
+  const company = $('regCompany').value.trim();
+  const logo = selectedLogoBase64 || "";
+
+  if (!name || !email || !password || !company) {
+    showToast('Por favor, preencha todos os campos obrigatórios.', 'warning');
+    return;
+  }
+
+  if (!email.includes('@') || !email.includes('.')) {
+    showToast('Por favor, insira um e-mail válido.', 'warning');
+    return;
+  }
+
+  // Check unique email
+  const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+  const exists = users.some(u => u.email.toLowerCase() === email);
+  if (exists) {
+    showToast('E-mail já cadastrado! Faça login ou recupere a senha.', 'error');
+    return;
+  }
+
+  // Generate OTP PIN
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  verificationCode = code;
+  verificationType = "register";
+  verificationTargetUser = { name, email, password, company, logo };
+
+  showVerificationView(`Insira o código de 6 dígitos enviado para ${email}`);
+  showMockEmail(email, name, code, "Confirmação de Cadastro");
+  showToast('Código de verificação gerado no simulador de e-mail!', 'success');
+}
+
+function handleVerifyCode() {
+  const pinInput = $('verificationCodeInput').value.trim();
+  if (pinInput.length !== 6 || isNaN(pinInput)) {
+    showToast('O código deve conter 6 dígitos numéricos.', 'warning');
+    return;
+  }
+
+  if (pinInput === verificationCode) {
+    if (verificationType === 'register') {
+      const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+      
+      if (users.some(u => u.email.toLowerCase() === verificationTargetUser.email.toLowerCase())) {
+        showToast('Esta conta já foi criada.', 'error');
+        cancelVerification();
+        return;
+      }
+
+      users.push(verificationTargetUser);
+      localStorage.setItem('crm_users', JSON.stringify(users));
+      
+      // Auto log-in session
+      localStorage.setItem('crm_active_user', JSON.stringify(verificationTargetUser));
+      activeUser = verificationTargetUser;
+      selectedLogoBase64 = "";
+
+      showToast('Conta criada e validada com sucesso! Bem-vindo! 🚀', 'success');
+
+      const emailWindow = $('mockGmailNotification');
+      if (emailWindow) emailWindow.remove();
+
+      checkAuth();
+      
+      verificationCode = "";
+      verificationType = "";
+      verificationTargetUser = null;
+    } else if (verificationType === 'recover') {
+      showResetPasswordView();
+      showToast('Código confirmado. Crie sua nova senha.', 'success');
+      
+      const emailWindow = $('mockGmailNotification');
+      if (emailWindow) emailWindow.remove();
+    }
+  } else {
+    const otpCard = $('loginCard');
+    otpCard.classList.add('shake');
+    showToast('Código incorreto! Verifique seu simulador de e-mail.', 'error');
+    setTimeout(() => {
+      otpCard.classList.remove('shake');
+    }, 500);
+  }
+}
+
+function handleForgotPassword() {
+  const emailInput = $('forgotEmail').value.trim().toLowerCase();
+  if (!emailInput) {
+    showToast('Insira seu e-mail cadastrado.', 'warning');
+    return;
+  }
+
+  const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+  const foundUser = users.find(u => u.email.toLowerCase() === emailInput);
+
+  if (!foundUser) {
+    showToast('Não encontramos nenhuma conta com esse e-mail.', 'error');
+    return;
+  }
+
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  verificationCode = code;
+  verificationType = "recover";
+  verificationTargetUser = foundUser;
+
+  showVerificationView(`Insira o código de recuperação enviado para ${emailInput}`);
+  showMockEmail(emailInput, foundUser.name, code, "Recuperação de Senha");
+  showToast('Código de recuperação enviado!', 'success');
+}
+
+function handleResetPassword() {
+  const newPass = $('newPasswordInput').value;
+  if (!newPass || newPass.length < 6) {
+    showToast('A senha deve ter pelo menos 6 caracteres.', 'warning');
+    return;
+  }
+
+  const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+  const userIndex = users.findIndex(u => u.email.toLowerCase() === verificationTargetUser.email.toLowerCase());
+
+  if (userIndex !== -1) {
+    users[userIndex].password = newPass;
+    localStorage.setItem('crm_users', JSON.stringify(users));
+
+    showToast('Senha alterada com sucesso! Faça login com a nova senha.', 'success');
+    
+    verificationCode = "";
+    verificationType = "";
+    verificationTargetUser = null;
+    showLoginView();
+  } else {
+    showToast('Erro ao atualizar senha. Usuário não encontrado.', 'error');
+    cancelVerification();
+  }
+}
+
+// --- Floating Glassmorphic Simulated Gmail Inbox Notification Window ---
+function showMockEmail(email, name, pin, subjectPrefix) {
+  const oldEmail = $('mockGmailNotification');
+  if (oldEmail) oldEmail.remove();
+
+  const mockEmail = document.createElement('div');
+  mockEmail.id = 'mockGmailNotification';
+  mockEmail.style.cssText = `
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    width: 360px;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    border-radius: 16px;
+    padding: 18px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+    z-index: 10005;
+    color: #f8fafc;
+    font-family: system-ui, -apple-system, sans-serif;
+    animation: emailSlideIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  `;
+
+  if (!document.getElementById('emailAnimStyle')) {
+    const styleEl = document.createElement('style');
+    styleEl.id = 'emailAnimStyle';
+    styleEl.innerHTML = `
+      @keyframes emailSlideIn {
+        from { opacity: 0; transform: translateX(100px) scale(0.9); }
+        to { opacity: 1; transform: translateX(0) scale(1); }
+      }
+      @keyframes emailSlideOut {
+        from { opacity: 1; transform: translateX(0) scale(1); }
+        to { opacity: 0; transform: translateX(100px) scale(0.9); }
+      }
+    `;
+    document.head.appendChild(styleEl);
+  }
+
+  mockEmail.innerHTML = `
+    <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 10px; margin-bottom: 12px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="background: #ea4335; width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.75rem;">M</div>
+        <span style="font-size: 0.8rem; font-weight: 600; color: #94a3b8; letter-spacing: 0.05em; text-transform: uppercase;">Caixa de Entrada (Simulador)</span>
+      </div>
+      <button id="closeEmailBtn" style="background: none; border: none; color: #94a3b8; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 2px; border-radius: 50%; transition: background 0.2s;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+    
+    <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 6px;">
+      <strong>De:</strong> security@meusclientes.com.br
+    </div>
+    <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 6px;">
+      <strong>Para:</strong> ${email}
+    </div>
+    <div style="font-size: 0.85rem; color: #f8fafc; font-weight: 600; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px;">
+      <strong>Assunto:</strong> ${subjectPrefix} - Código: ${pin}
+    </div>
+    
+    <div style="font-size: 0.85rem; line-height: 1.4; color: #cbd5e1; margin-bottom: 16px;">
+      Olá <strong>${name}</strong>,<br><br>
+      Recebemos sua solicitação no sistema <strong>Meus Clientes</strong>. Use o código de 6 dígitos abaixo para concluir sua ação:<br>
+      <div style="text-align: center; margin: 14px 0; background: rgba(99, 102, 241, 0.15); border: 1px dashed rgba(99, 102, 241, 0.4); padding: 12px; border-radius: 8px; font-size: 1.6rem; font-weight: bold; letter-spacing: 0.15em; color: var(--info);">
+        ${pin}
+      </div>
+      Este código expira em 10 minutos. Se você não solicitou este código, desconsidere este e-mail.
+    </div>
+    
+    <button id="btnAutoFillPin" style="width: 100%; background: var(--primary); color: white; border: none; padding: 10px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0A2.25 2.25 0 0113.5 3.75H12c-.076 0-.15.005-.224.014m-.496 0A2.25 2.25 0 0010.5 3.75h-.334m7.332 0c.006.066.01.134.01.202a3 3 0 01-3 3M10.5 3.75a3 3 0 00-3 3v8.25m9-8.25v1.25m-9 7h10.5M7.5 15.75H18" /></svg>
+      Copiar & Autopreencher PIN
+    </button>
+  `;
+
+  document.body.appendChild(mockEmail);
+
+  mockEmail.querySelector('#closeEmailBtn').onclick = () => {
+    mockEmail.style.animation = 'emailSlideOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards';
+    setTimeout(() => mockEmail.remove(), 400);
+  };
+
+  const btn = mockEmail.querySelector('#btnAutoFillPin');
+  if (btn) {
+    btn.onclick = () => {
+      const pinInput = $('verificationCodeInput');
+      if (pinInput) {
+        pinInput.value = pin;
+        pinInput.focus();
+        showToast('Código inserido com sucesso!', 'success');
+      }
+      mockEmail.style.animation = 'emailSlideOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards';
+      setTimeout(() => mockEmail.remove(), 400);
+    };
+  }
 }
 
 // ==========================================================================
@@ -155,22 +568,25 @@ function updateClockAndGreeting() {
     timeBadge.innerText = `${hh}:${mm}`;
   }
   
-  // Dynamic Greeting based on current local hour
+  // Dynamic Greeting based on current local hour and activeUser
   const headerGreeting = $('headerGreeting');
   const headerSubGreeting = $('headerSubGreeting');
-  if (headerGreeting) {
+  if (headerGreeting && activeUser) {
     const hour = now.getHours();
-    let greeting = 'Olá, Caio';
+    const nameParts = activeUser.name.split(' ');
+    const firstName = nameParts[0] || 'Usuário';
+    
+    let greeting = `Olá, ${firstName}`;
     let sub = 'Pronto para codar hoje?';
     
     if (hour >= 5 && hour < 12) {
-      greeting = 'Bom dia, Caio ☕';
+      greeting = `Bom dia, ${firstName} ☕`;
       sub = 'Comece o dia organizando suas metas!';
     } else if (hour >= 12 && hour < 18) {
-      greeting = 'Boa tarde, Caio 💻';
+      greeting = `Boa tarde, ${firstName} 💻`;
       sub = 'Foco total no desenvolvimento!';
     } else {
-      greeting = 'Boa noite, Caio 🌙';
+      greeting = `Boa noite, ${firstName} 🌙`;
       sub = 'Projetando códigos estelares!';
     }
     
@@ -229,7 +645,7 @@ function updateLiveCountdowns() {
 
 // Meeting Notification engine (runs in background)
 function scanUpcomingMeetingsForAlerts() {
-  if (localStorage.getItem('crm_devhub_logged_in') !== 'true') return;
+  if (!activeUser) return;
   
   const now = new Date();
   let alertCount = 0;
@@ -854,7 +1270,7 @@ function saveClientData() {
   }
 
   // Persist & Refresh views
-  localStorage.setItem('crm_clients', JSON.stringify(clients));
+  localStorage.setItem(getUserKey('crm_clients'), JSON.stringify(clients));
 
   // Cloud Sync PUSH hook
   if (id) {
@@ -965,7 +1381,7 @@ function deleteClientFromDetails() {
     SupabaseSyncEngine.deleteRecord('clients', activeDetailClientId);
 
     clients = clients.filter(c => c.id !== activeDetailClientId);
-    localStorage.setItem('crm_clients', JSON.stringify(clients));
+    localStorage.setItem(getUserKey('crm_clients'), JSON.stringify(clients));
     
     showToast('Cliente removido do sistema.', 'warning');
     $('modalClientDetails').style.display = 'none';
@@ -1045,7 +1461,7 @@ async function syncGitRepositoryDetails() {
     };
 
     clients[clientIndex].gitCachedData = gitCachedData;
-    localStorage.setItem('crm_clients', JSON.stringify(clients));
+    localStorage.setItem(getUserKey('crm_clients'), JSON.stringify(clients));
 
     showToast('GitHub sincronizado com sucesso! ⭐', 'success');
     
@@ -1123,10 +1539,10 @@ function addTodoItem() {
   };
 
   todos.push(newTodo);
-  localStorage.setItem('crm_todos', JSON.stringify(todos));
+  localStorage.setItem(getUserKey('crm_todos'), JSON.stringify(todos));
   
   // Cloud Sync PUSH hook
-  SupabaseSyncEngine.pushRecord('todos', newTodo);
+  SupabaseSyncEngine.pushRecord('todos', mapTodoToDb(newTodo));
 
   input.value = '';
 
@@ -1138,10 +1554,10 @@ function toggleTodoItem(id) {
   const index = todos.findIndex(t => t.id === id);
   if (index !== -1) {
     todos[index].completed = !todos[index].completed;
-    localStorage.setItem('crm_todos', JSON.stringify(todos));
+    localStorage.setItem(getUserKey('crm_todos'), JSON.stringify(todos));
     
     // Cloud Sync PUSH hook
-    SupabaseSyncEngine.pushRecord('todos', todos[index]);
+    SupabaseSyncEngine.pushRecord('todos', mapTodoToDb(todos[index]));
 
     renderTodoList();
   }
@@ -1152,7 +1568,7 @@ function deleteTodoItem(id) {
   SupabaseSyncEngine.deleteRecord('todos', id);
 
   todos = todos.filter(t => t.id !== id);
-  localStorage.setItem('crm_todos', JSON.stringify(todos));
+  localStorage.setItem(getUserKey('crm_todos'), JSON.stringify(todos));
   renderTodoList();
 }
 
@@ -1164,15 +1580,15 @@ function saveScratchpad() {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   
-  localStorage.setItem('crm_scratchpad', text);
-  localStorage.setItem('crm_scratchpad_time', timeStr);
+  localStorage.setItem(getUserKey('crm_scratchpad'), text);
+  localStorage.setItem(getUserKey('crm_scratchpad_time'), timeStr);
   
   $('scratchpadSaveTime').innerText = `Última alteração: salvo às ${timeStr}`;
 
   // Cloud Sync PUSH hook with 1s debounce
   if (scratchpadSyncTimeout) clearTimeout(scratchpadSyncTimeout);
   scratchpadSyncTimeout = setTimeout(() => {
-    SupabaseSyncEngine.pushRecord('scratchpad', { id: 'single_notes', content: text });
+    SupabaseSyncEngine.pushRecord('scratchpad', { id: `single_notes_${activeUser.email}`, user_email: activeUser.email, content: text });
   }, 1000);
 }
 
@@ -1218,14 +1634,14 @@ function importDataFromJSON(event) {
       
       if (imported.clients && Array.isArray(imported.clients)) {
         clients = imported.clients;
-        localStorage.setItem('crm_clients', JSON.stringify(clients));
+        localStorage.setItem(getUserKey('crm_clients'), JSON.stringify(clients));
       }
       if (imported.todos && Array.isArray(imported.todos)) {
         todos = imported.todos;
-        localStorage.setItem('crm_todos', JSON.stringify(todos));
+        localStorage.setItem(getUserKey('crm_todos'), JSON.stringify(todos));
       }
       if (imported.scratchpad) {
-        localStorage.setItem('crm_scratchpad', imported.scratchpad);
+        localStorage.setItem(getUserKey('crm_scratchpad'), imported.scratchpad);
         if ($('notesScratchpad')) {
           $('notesScratchpad').value = imported.scratchpad;
         }
@@ -1253,16 +1669,21 @@ function importDataFromJSON(event) {
 }
 
 function wipeAllDatabaseData() {
-  if (confirm('ATENÇÃO EXTREMA: Deseja apagar ABSOLUTAMENTE TODOS os dados salvos localmente? Esta ação é irreversível.')) {
-    localStorage.removeItem('crm_clients');
-    localStorage.removeItem('crm_todos');
-    localStorage.removeItem('crm_scratchpad');
-    localStorage.removeItem('crm_scratchpad_time');
-    localStorage.removeItem('crm_github_token');
-    localStorage.removeItem('crm_supabase_url');
-    localStorage.removeItem('crm_supabase_key');
+  if (confirm('ATENÇÃO: Deseja apagar todos os dados da sua conta localmente? Esta ação é irreversível.')) {
+    if (activeUser) {
+      localStorage.removeItem(getUserKey('crm_clients'));
+      localStorage.removeItem(getUserKey('crm_todos'));
+      localStorage.removeItem(getUserKey('crm_scratchpad'));
+      localStorage.removeItem(getUserKey('crm_scratchpad_time'));
+      localStorage.removeItem(getUserKey('crm_github_token'));
+      localStorage.removeItem(getUserKey('crm_supabase_url'));
+      localStorage.removeItem(getUserKey('crm_supabase_key'));
+      
+      // Remove active session
+      localStorage.removeItem('crm_active_user');
+    }
     
-    showToast('Banco de dados local limpo. Reiniciando...', 'error');
+    showToast('Dados da conta limpos com sucesso.', 'error');
     setTimeout(() => {
       window.location.reload();
     }, 1500);
@@ -1277,6 +1698,7 @@ function wipeAllDatabaseData() {
 function mapClientToDb(c) {
   return {
     id: c.id,
+    user_email: activeUser ? activeUser.email : 'local',
     name: c.name,
     company: c.company || null,
     email: c.email || null,
@@ -1292,6 +1714,15 @@ function mapClientToDb(c) {
     date_next_contact: c.dateNextContact || null,
     notes: c.notes || null,
     git_cached_data: c.gitCachedData || null
+  };
+}
+
+function mapTodoToDb(t) {
+  return {
+    id: t.id,
+    user_email: activeUser ? activeUser.email : 'local',
+    text: t.text,
+    completed: t.completed
   };
 }
 
@@ -1322,8 +1753,8 @@ const SupabaseSyncEngine = {
   active: false,
 
   init() {
-    this.url = localStorage.getItem('crm_supabase_url') || '';
-    this.key = localStorage.getItem('crm_supabase_key') || '';
+    this.url = localStorage.getItem(getUserKey('crm_supabase_url')) || '';
+    this.key = localStorage.getItem(getUserKey('crm_supabase_key')) || '';
     
     if (this.url && this.key) {
       this.active = true;
@@ -1335,6 +1766,9 @@ const SupabaseSyncEngine = {
     } else {
       this.active = false;
       this.updateHeaderBadge(false);
+      if ($('supabaseUrlInput')) $('supabaseUrlInput').value = '';
+      if ($('supabaseKeyInput')) $('supabaseKeyInput').value = '';
+      if ($('btnDisconnectSupabase')) $('btnDisconnectSupabase').style.display = 'none';
     }
   },
 
@@ -1376,10 +1810,10 @@ const SupabaseSyncEngine = {
   },
 
   async pullAll() {
-    if (!this.active) return;
+    if (!this.active || !activeUser) return;
     try {
-      // 1. Pull Clients
-      const resClients = await fetch(`${this.url}/rest/v1/clients`, {
+      // 1. Pull Clients scoped by user_email
+      const resClients = await fetch(`${this.url}/rest/v1/clients?user_email=eq.${activeUser.email}`, {
         method: 'GET',
         headers: this.getHeaders()
       });
@@ -1387,25 +1821,30 @@ const SupabaseSyncEngine = {
         const dbClients = await resClients.json();
         if (dbClients) {
           clients = dbClients.map(mapClientFromDb);
-          localStorage.setItem('crm_clients', JSON.stringify(clients));
+          localStorage.setItem(getUserKey('crm_clients'), JSON.stringify(clients));
         }
       }
 
-      // 2. Pull Todos
-      const resTodos = await fetch(`${this.url}/rest/v1/todos`, {
+      // 2. Pull Todos scoped by user_email
+      const resTodos = await fetch(`${this.url}/rest/v1/todos?user_email=eq.${activeUser.email}`, {
         method: 'GET',
         headers: this.getHeaders()
       });
       if (resTodos.ok) {
         const dbTodos = await resTodos.json();
         if (dbTodos) {
-          todos = dbTodos;
-          localStorage.setItem('crm_todos', JSON.stringify(todos));
+          // Filter or map todos directly
+          todos = dbTodos.map(t => ({
+            id: t.id,
+            text: t.text,
+            completed: t.completed
+          }));
+          localStorage.setItem(getUserKey('crm_todos'), JSON.stringify(todos));
         }
       }
 
-      // 3. Pull Scratchpad
-      const resNotes = await fetch(`${this.url}/rest/v1/scratchpad?id=eq.single_notes`, {
+      // 3. Pull Scratchpad scoped by id
+      const resNotes = await fetch(`${this.url}/rest/v1/scratchpad?id=eq.single_notes_${activeUser.email}`, {
         method: 'GET',
         headers: this.getHeaders()
       });
@@ -1413,7 +1852,7 @@ const SupabaseSyncEngine = {
         const dbNotes = await resNotes.json();
         if (dbNotes && dbNotes.length > 0) {
           const notesText = dbNotes[0].content || '';
-          localStorage.setItem('crm_scratchpad', notesText);
+          localStorage.setItem(getUserKey('crm_scratchpad'), notesText);
           if ($('notesScratchpad')) {
             $('notesScratchpad').value = notesText;
           }
@@ -1483,8 +1922,8 @@ async function connectSupabaseCloud() {
 
   const isConnected = await SupabaseSyncEngine.testConnection(url, key);
   if (isConnected) {
-    localStorage.setItem('crm_supabase_url', url);
-    localStorage.setItem('crm_supabase_key', key);
+    localStorage.setItem(getUserKey('crm_supabase_url'), url);
+    localStorage.setItem(getUserKey('crm_supabase_key'), key);
     
     SupabaseSyncEngine.url = url;
     SupabaseSyncEngine.key = key;
@@ -1506,7 +1945,7 @@ async function connectSupabaseCloud() {
 }
 
 async function pushAllLocalDataToCloud() {
-  if (!SupabaseSyncEngine.active) return;
+  if (!SupabaseSyncEngine.active || !activeUser) return;
   
   // Push clients
   for (const c of clients) {
@@ -1515,18 +1954,18 @@ async function pushAllLocalDataToCloud() {
   
   // Push todos
   for (const t of todos) {
-    await SupabaseSyncEngine.pushRecord('todos', t);
+    await SupabaseSyncEngine.pushRecord('todos', mapTodoToDb(t));
   }
   
   // Push scratchpad
-  const notesText = localStorage.getItem('crm_scratchpad') || "";
-  await SupabaseSyncEngine.pushRecord('scratchpad', { id: 'single_notes', content: notesText });
+  const notesText = localStorage.getItem(getUserKey('crm_scratchpad')) || "";
+  await SupabaseSyncEngine.pushRecord('scratchpad', { id: `single_notes_${activeUser.email}`, user_email: activeUser.email, content: notesText });
 }
 
 function disconnectSupabaseCloud() {
   if (confirm('Deseja realmente desconectar a sincronização em nuvem? Seus dados locais serão mantidos, mas novas alterações não serão salvas na nuvem.')) {
-    localStorage.removeItem('crm_supabase_url');
-    localStorage.removeItem('crm_supabase_key');
+    localStorage.removeItem(getUserKey('crm_supabase_url'));
+    localStorage.removeItem(getUserKey('crm_supabase_key'));
     
     SupabaseSyncEngine.url = '';
     SupabaseSyncEngine.key = '';
@@ -1588,74 +2027,9 @@ function contactClientWhatsApp(clientId) {
 // 11. Initial Mock Database
 // ==========================================================================
 function getMockData() {
-  const firstContactDate = new Date();
-  firstContactDate.setDate(firstContactDate.getDate() - 10);
-  
-  const nextContactDate = new Date();
-  nextContactDate.setMinutes(nextContactDate.getMinutes() + 10); // 10 minutes in the future for testing countdowns!
-
-  return [
-    {
-      id: "1",
-      name: "Arthur Pendragon",
-      company: "Camelot Technologies",
-      email: "arthur@camelot.tech",
-      phone: "+55 (11) 98888-7777",
-      projectName: "Sistema de Távola Redonda",
-      projectType: "Sistema",
-      projectStatus: "Estrutura sendo feita",
-      projectGit: "facebook/react", // Valid public repo for instant Github sync tests
-      projectDeploy: "https://react.dev",
-      projectCost: 8500.00,
-      projectHours: 120,
-      dateFirstContact: firstContactDate.toISOString(),
-      dateNextContact: nextContactDate.toISOString(),
-      notes: "O cliente deseja uma mesa redonda virtual de discussão corporativa sincronizada em tempo real via websockets.",
-      gitCachedData: null
-    },
-    {
-      id: "2",
-      name: "Guilherme de Orange",
-      company: "Nassau Sites",
-      email: "guilherme@nassau.co",
-      phone: "+31 6 12345678",
-      projectName: "Landing Page Coroa Holandesa",
-      projectType: "Site",
-      projectStatus: "Deploy",
-      projectGit: "",
-      projectDeploy: "https://wikipedia.org",
-      projectCost: 2800.00,
-      projectHours: 24,
-      dateFirstContact: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days ago
-      dateNextContact: null,
-      notes: "Landing page corporativa extremamente polida contendo micro-animações em canvas e paleta de cores laranja/indigo premium.",
-      gitCachedData: null
-    },
-    {
-      id: "3",
-      name: "Luiza de Bragança",
-      company: "Império Apps",
-      email: "luiza@imperio.com.br",
-      phone: "(21) 97777-6666",
-      projectName: "App Real Grandeza",
-      projectType: "App",
-      projectStatus: "Idealizando",
-      projectGit: "",
-      projectDeploy: "",
-      projectCost: 15000.00,
-      projectHours: 200,
-      dateFirstContact: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
-      dateNextContact: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000 + 3 * 3600 * 1000).toISOString(), // 5 days, 3 hours from now
-      notes: "App mobile para investidores corporativos de alto nível acompanharem métricas macroeconômicas.",
-      gitCachedData: null
-    }
-  ];
+  return [];
 }
 
 function getMockTodos() {
-  return [
-    { id: "t1", text: "Sincronizar repositório Git no detalhe de Arthur Pendragon", completed: false },
-    { id: "t2", text: "Finalizar escopo do projeto Real Grandeza de Luiza", completed: false },
-    { id: "t3", text: "Fazer deploy do site Nassau no ar", completed: true }
-  ];
+  return [];
 }
