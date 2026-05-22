@@ -1762,8 +1762,10 @@ const SupabaseSyncEngine = {
   active: false,
 
   init() {
-    this.url = sanitizeSupabaseUrl(localStorage.getItem(getUserKey('crm_supabase_url')) || '');
-    this.key = localStorage.getItem(getUserKey('crm_supabase_key')) || '';
+    const isDisabled = localStorage.getItem(getUserKey('crm_supabase_disabled')) === 'true';
+    
+    this.url = sanitizeSupabaseUrl(localStorage.getItem(getUserKey('crm_supabase_url')) || (isDisabled ? '' : 'https://lsmxobsoxkiqxdgjvcsd.supabase.co'));
+    this.key = localStorage.getItem(getUserKey('crm_supabase_key')) || (isDisabled ? '' : 'sb_publishable_TpHRzg0Nz0CerdrpgBHVgA_p3hFTljK');
     
     if (this.url && this.key) {
       this.active = true;
@@ -1775,9 +1777,8 @@ const SupabaseSyncEngine = {
     } else {
       this.active = false;
       this.updateHeaderBadge(false);
-      // Pre-fill both Supabase URL and Publishable Key by default to make setup seamless!
-      if ($('supabaseUrlInput')) $('supabaseUrlInput').value = 'https://lsmxobsoxkiqxdgjvcsd.supabase.co';
-      if ($('supabaseKeyInput')) $('supabaseKeyInput').value = 'sb_publishable_TpHRzg0Nz0CerdrpgBHVgA_p3hFTljK';
+      if ($('supabaseUrlInput')) $('supabaseUrlInput').value = '';
+      if ($('supabaseKeyInput')) $('supabaseKeyInput').value = '';
       if ($('btnDisconnectSupabase')) $('btnDisconnectSupabase').style.display = 'none';
     }
   },
@@ -1932,6 +1933,7 @@ async function connectSupabaseCloud() {
 
   const isConnected = await SupabaseSyncEngine.testConnection(url, key);
   if (isConnected) {
+    localStorage.removeItem(getUserKey('crm_supabase_disabled'));
     localStorage.setItem(getUserKey('crm_supabase_url'), url);
     localStorage.setItem(getUserKey('crm_supabase_key'), key);
     
@@ -1974,6 +1976,7 @@ async function pushAllLocalDataToCloud() {
 
 function disconnectSupabaseCloud() {
   if (confirm('Deseja realmente desconectar a sincronização em nuvem? Seus dados locais serão mantidos, mas novas alterações não serão salvas na nuvem.')) {
+    localStorage.setItem(getUserKey('crm_supabase_disabled'), 'true');
     localStorage.removeItem(getUserKey('crm_supabase_url'));
     localStorage.removeItem(getUserKey('crm_supabase_key'));
     
