@@ -1762,7 +1762,7 @@ const SupabaseSyncEngine = {
   active: false,
 
   init() {
-    this.url = sanitizeSupabaseUrl(localStorage.getItem(getUserKey('crm_supabase_url')) || 'https://lsmxobsoxkiqxdgjvcsd.supabase.co');
+    this.url = sanitizeSupabaseUrl(localStorage.getItem(getUserKey('crm_supabase_url')) || '');
     this.key = localStorage.getItem(getUserKey('crm_supabase_key')) || '';
     
     if (this.url && this.key) {
@@ -1775,8 +1775,9 @@ const SupabaseSyncEngine = {
     } else {
       this.active = false;
       this.updateHeaderBadge(false);
-      if ($('supabaseUrlInput')) $('supabaseUrlInput').value = this.url || 'https://lsmxobsoxkiqxdgjvcsd.supabase.co';
-      if ($('supabaseKeyInput')) $('supabaseKeyInput').value = '';
+      // Pre-fill both Supabase URL and Publishable Key by default to make setup seamless!
+      if ($('supabaseUrlInput')) $('supabaseUrlInput').value = 'https://lsmxobsoxkiqxdgjvcsd.supabase.co';
+      if ($('supabaseKeyInput')) $('supabaseKeyInput').value = 'sb_publishable_TpHRzg0Nz0CerdrpgBHVgA_p3hFTljK';
       if ($('btnDisconnectSupabase')) $('btnDisconnectSupabase').style.display = 'none';
     }
   },
