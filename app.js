@@ -19,6 +19,15 @@ let selectedLogoBase64 = ""; // Loaded company logo from file selector
 // Helper: Get element by ID
 const $ = (id) => document.getElementById(id);
 
+// Helper: Sanitize Supabase URL to strip trailing slash or /rest/v1 if included
+function sanitizeSupabaseUrl(url) {
+  if (!url) return '';
+  let clean = url.trim();
+  clean = clean.replace(/\/+$/, '');
+  clean = clean.replace(/\/rest\/v1$/, '');
+  return clean;
+}
+
 // Scoping Helper: scopes localstorage keys by user email
 function getUserKey(key) {
   if (activeUser && activeUser.email) {
@@ -1753,7 +1762,7 @@ const SupabaseSyncEngine = {
   active: false,
 
   init() {
-    this.url = localStorage.getItem(getUserKey('crm_supabase_url')) || '';
+    this.url = sanitizeSupabaseUrl(localStorage.getItem(getUserKey('crm_supabase_url')) || 'https://lsmxobsoxkiqxdgjvcsd.supabase.co');
     this.key = localStorage.getItem(getUserKey('crm_supabase_key')) || '';
     
     if (this.url && this.key) {
@@ -1766,7 +1775,7 @@ const SupabaseSyncEngine = {
     } else {
       this.active = false;
       this.updateHeaderBadge(false);
-      if ($('supabaseUrlInput')) $('supabaseUrlInput').value = '';
+      if ($('supabaseUrlInput')) $('supabaseUrlInput').value = this.url || 'https://lsmxobsoxkiqxdgjvcsd.supabase.co';
       if ($('supabaseKeyInput')) $('supabaseKeyInput').value = '';
       if ($('btnDisconnectSupabase')) $('btnDisconnectSupabase').style.display = 'none';
     }
@@ -1910,7 +1919,7 @@ const SupabaseSyncEngine = {
 };
 
 async function connectSupabaseCloud() {
-  const url = $('supabaseUrlInput').value.trim();
+  const url = sanitizeSupabaseUrl($('supabaseUrlInput').value);
   const key = $('supabaseKeyInput').value.trim();
 
   if (!url || !key) {
