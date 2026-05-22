@@ -1,50 +1,82 @@
-# CRM DevHub 🚀
+# Meus Clientes 🚀
 
-Um aplicativo de alta fidelidade visual (premium glassmorphism, inspirado no iOS) e funcionalidade offline completa, feito especificamente para o Caio (desenvolvedor full stack) gerenciar seus clientes, projetos, finanças e reuniões de maneira integrada.
-
-## 📱 Funcionalidades
-
-1. **🔒 Login Seguro:** Autenticação local para manter seus dados de clientes confidenciais.
-   * **Usuário:** `caio`
-   * **Senha:** `1414`
-2. **📊 Dashboard Premium:** 
-   * **Finanças:** Faturamento total acumulado, receita mensal estimada e valor/hora médio.
-   * **Métricas:** Projetos concluídos vs. restantes e gráficos visuais do andamento do portfólio.
-   * **Próximas Reuniões:** Cards dinâmicos com contagem regressiva em tempo real.
-3. **👥 Gestão de Clientes e Projetos:**
-   * Cadastro completo com Nome, Empresa, Contatos e Detalhes.
-   * **Categorias:** Site, App, Software, Sistema.
-   * **Estados do Projeto:** Idealizando, Estrutura sendo feita, Fase de testes, Deploy, Manutenção.
-   * **Sincronização com GitHub:** Puxe dados em tempo real de repositórios públicos (estrelas, issues, último commit, linguagem) diretamente para o painel do cliente!
-   * **Links Úteis:** Acesso direto ao repositório Git e ao link de Deploy do projeto.
-4. **⏳ Linha do Tempo & Prazos:**
-   * Acompanhamento do primeiro contato e dos próximos agendados.
-   * Contadores regressivos automáticos e notificações internas para reuniões eminentes.
-5. **📝 Lembretes & Notas:**
-   * Lista de To-Do rápida para o dia a dia de desenvolvimento.
-   * Bloco de notas flexível (Scratchpad) para armazenar snippets de código ou informações rápidas.
-6. **⚙️ Configurações & Segurança:**
-   * **Backup Total:** Exporte e importe todos os seus dados em formato JSON com um único clique.
-   * **Token GitHub:** Campo seguro para configurar um Personal Access Token para também monitorar repositórios privados.
-   * **Reset:** Limpeza rápida do banco de dados local.
-
-## 🛠️ Como Iniciar
-
-Como o aplicativo é uma Single Page Application (SPA) pura baseada em `localStorage`, você tem duas maneiras super simples de executá-lo:
-
-### Opção 1: Diretamente no Navegador (Sem Instalação)
-Basta abrir o arquivo [index.html](file:///Users/caiorodrigues/Documents/Clientes/index.html) dando dois cliques nele para carregar o aplicativo instantaneamente!
-
-### Opção 2: Usando o Servidor Local de Desenvolvimento
-Se você preferir rodar em um servidor local com reload automático:
-1. Abra o terminal na pasta do projeto.
-2. Instale dependências e inicie o servidor:
-   ```bash
-   npm install
-   npm run dev
-   ```
-3. O aplicativo estará acessível em `http://localhost:3000`.
+Um aplicativo de alta fidelidade visual (premium glassmorphism, inspirado no iOS) e funcionalidade offline-first completa, feito especificamente para desenvolvedores profissionais e freelancers gerenciarem seus clientes, projetos, finanças e reuniões de maneira integrada e multi-contas.
 
 ---
 
-Desenvolvido com carinho para otimizar sua rotina full stack! 💻✨
+## 📱 Novas Funcionalidades Multi-Contas
+
+1. **👥 Cadastro e Criação de Contas:**
+   * Cada usuário possui sua própria conta, identificada por Nome Completo, e-mail (Gmail), Senha e Nome da Empresa.
+2. **📸 Logotipo Customizado:**
+   * Suporte para upload de logotipo da empresa. O sistema processa e comprime a imagem localmente (Base64), exibindo o logotipo de forma circular premium no cabeçalho do painel.
+3. **📩 Simulador do Gmail de Alta Fidelidade:**
+   * Caixa de entrada simulada que aparece flutuando em tela para prover os códigos PIN OTP de 6 dígitos para validação de cadastro e recuperação de senha ("Esqueci minha senha").
+4. **🔒 Isolamento Total de Dados:**
+   * Todos os dados (clientes, lembretes, notas e tokens de integração) são prefixados com o e-mail do usuário ativo no `localStorage`, garantindo total privacidade entre contas no mesmo navegador.
+5. **☁️ Sincronização em Nuvem Supabase Multi-Tenant:**
+   * Permite conectar qualquer banco Supabase gratuito inserindo a URL e a Anon Key nas configurações. O sistema realiza o isolamento lógico das informações de cada usuário na nuvem por meio do e-mail ativo.
+
+---
+
+## 🛠️ Como Iniciar & Deploy no Vercel
+
+### 1. Fazer o Push para o GitHub e Vercel
+1. O commit local já foi criado com todas as novas funcionalidades.
+2. Abra o terminal na pasta do projeto e envie o código para o seu repositório:
+   ```bash
+   git push origin main
+   ```
+3. Acesse o painel da **Vercel** (https://vercel.com).
+4. Clique em **Add New > Project**, selecione o repositório `iClient` e faça o deploy (como é uma Single Page Application pura de HTML/CSS/JS, o Vercel fará o deploy instantâneo de forma gratuita).
+
+### 2. Configurar o Supabase (Banco de Dados Gratuito)
+Para salvar seus dados na nuvem para sempre, crie um projeto gratuito no [Supabase](https://supabase.com) e execute o script SQL abaixo no **SQL Editor** do painel do Supabase:
+
+```sql
+-- 1. Tabela de Clientes
+CREATE TABLE IF NOT EXISTS public.clients (
+    id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL, -- Campo de isolamento lógico
+    name TEXT NOT NULL,
+    company TEXT,
+    email TEXT,
+    phone TEXT,
+    project_name TEXT NOT NULL,
+    project_type TEXT NOT NULL,
+    project_status TEXT NOT NULL,
+    project_git TEXT,
+    project_deploy TEXT,
+    project_cost NUMERIC,
+    project_hours INTEGER,
+    date_first_contact TEXT NOT NULL,
+    date_next_contact TEXT,
+    notes TEXT,
+    git_cached_data JSONB,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 2. Tabela de Lembretes (To-Dos)
+CREATE TABLE IF NOT EXISTS public.todos (
+    id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL, -- Campo de isolamento lógico
+    text TEXT NOT NULL,
+    completed BOOLEAN DEFAULT false NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 3. Tabela do Bloco de Notas (Scratchpad)
+CREATE TABLE IF NOT EXISTS public.scratchpad (
+    id TEXT NOT NULL,
+    user_email TEXT NOT NULL, -- Campo de isolamento lógico
+    content TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    PRIMARY KEY (id, user_email)
+);
+```
+
+### 3. Conectar o App com a Nuvem
+1. No seu aplicativo implantado no Vercel (ou rodando localmente), faça login na sua conta.
+2. Navegue até a aba **Configurações** (ícone de engrenagem).
+3. Insira a **URL do Supabase** e a **Anon Key** (disponíveis no painel do seu projeto Supabase em *Settings > API*).
+4. Clique em **Conectar Sincronização**. O sistema enviará seus dados locais atuais para o banco e sincronizará automaticamente todas as alterações futuras na nuvem!
