@@ -94,6 +94,10 @@ function loadScopedUserData() {
     }
   }
 
+  // Carrega o wallpaper do usuário ativo
+  const savedWallpaper = localStorage.getItem(getUserKey('crm_active_wallpaper')) || 'bg.png';
+  document.body.style.background = `linear-gradient(rgba(15, 23, 42, 0.75), rgba(15, 23, 42, 0.85)), url('${savedWallpaper}') no-repeat center center / cover`;
+
   // Initialize Supabase Sync Engine
   SupabaseSyncEngine.init();
   if (SupabaseSyncEngine.active) {
@@ -149,6 +153,9 @@ function checkAuth() {
     renderTodoList();
   } else {
     activeUser = null;
+    // Reseta o wallpaper para o padrão ao deslogar
+    document.body.style.background = `linear-gradient(rgba(15, 23, 42, 0.75), rgba(15, 23, 42, 0.85)), url('bg.png') no-repeat center center / cover`;
+    
     $('loginOverlay').style.display = 'flex';
     $('appContainer').style.display = 'none';
     showLoginView();
@@ -577,6 +584,8 @@ function switchActiveTab(viewId, element) {
     renderTimeline();
   } else if (viewId === 'viewLembretes') {
     renderTodoList();
+  } else if (viewId === 'viewConfiguracoes') {
+    renderWallpaperGrid();
   }
 }
 
@@ -2404,4 +2413,47 @@ function updateDetailStepper(status) {
       step.classList.add('pulse');
     }
   });
+}
+
+// --- Seletor de Wallpapers SO Estilo Paisagem ---
+const wallpapers = [
+  { id: 'desk', name: 'Dev Setup', url: 'bg.png' },
+  { id: 'misty', name: 'Montanhas', url: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80' },
+  { id: 'galaxy', name: 'Espaço', url: 'https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?auto=format&fit=crop&w=1200&q=80' },
+  { id: 'desert', name: 'Deserto', url: 'https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?auto=format&fit=crop&w=1200&q=80' },
+  { id: 'aurora', name: 'Aurora Boreal', url: 'https://images.unsplash.com/photo-1529963183134-61a90db47eaf?auto=format&fit=crop&w=1200&q=80' },
+  { id: 'neon', name: 'Cyberpunk', url: 'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?auto=format&fit=crop&w=1200&q=80' },
+  { id: 'autumn', name: 'Outono', url: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1200&q=80' },
+  { id: 'ocean', name: 'Oceano', url: 'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?auto=format&fit=crop&w=1200&q=80' }
+];
+
+function renderWallpaperGrid() {
+  const grid = $('wallpaperGrid');
+  if (!grid) return;
+  
+  const savedWallpaper = localStorage.getItem(getUserKey('crm_active_wallpaper')) || 'bg.png';
+  
+  grid.innerHTML = '';
+  
+  wallpapers.forEach(w => {
+    const isActive = savedWallpaper === w.url;
+    const item = document.createElement('div');
+    item.className = `wallpaper-item ${isActive ? 'active' : ''}`;
+    item.setAttribute('onclick', `selectWallpaper('${w.url}')`);
+    item.setAttribute('title', w.name);
+    
+    item.innerHTML = `
+      <img src="${w.url}" alt="${w.name}">
+      <div class="wallpaper-check">✓</div>
+    `;
+    
+    grid.appendChild(item);
+  });
+}
+
+function selectWallpaper(url) {
+  document.body.style.background = `linear-gradient(rgba(15, 23, 42, 0.75), rgba(15, 23, 42, 0.85)), url('${url}') no-repeat center center / cover`;
+  localStorage.setItem(getUserKey('crm_active_wallpaper'), url);
+  renderWallpaperGrid();
+  showToast('Plano de fundo atualizado!', 'success');
 }

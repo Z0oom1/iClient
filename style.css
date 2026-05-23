@@ -2325,4 +2325,99 @@ button, input, select, textarea {
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
 }
 
+/* ==========================================================================
+   16. Tema Liquid Glass e Seletor de Wallpapers
+   ========================================================================== */
+
+/* Liquid Glass Theme Core Styling */
+.liquid-glass {
+  background: rgba(15, 23, 42, 0.45) !important;
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.05) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.liquid-glass:hover {
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.08) !important;
+  transform: translateY(-2px);
+}
+
+/* Redefinição de painéis padrão para Liquid Glass */
+.settings-card, .lembretes-card, .notes-card, .client-card, .modal-sheet, .context-menu {
+  background: rgba(15, 23, 42, 0.45) !important;
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.05) !important;
+  border-radius: var(--border-radius-lg);
+}
+
+/* Wallpaper Grid */
+.wallpaper-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .wallpaper-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.wallpaper-item {
+  position: relative;
+  aspect-ratio: 16/10;
+  border-radius: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.2);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.wallpaper-item:hover {
+  border-color: var(--info);
+  transform: scale(1.05);
+  box-shadow: 0 0 12px rgba(96, 165, 250, 0.4);
+}
+
+.wallpaper-item.active {
+  border-color: var(--success);
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.455);
+}
+
+.wallpaper-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s;
+}
+
+.wallpaper-item:hover img {
+  transform: scale(1.1);
+}
+
+.wallpaper-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--success);
+  color: white;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.wallpaper-item.active .wallpaper-check {
+  display: flex;
+}
+
 
