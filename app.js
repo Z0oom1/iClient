@@ -94,7 +94,7 @@ function loadScopedUserData() {
     $('githubTokenInput').value = githubToken;
   }
   if ($('githubClientIdInput')) {
-    $('githubClientIdInput').value = localStorage.getItem('crm_github_client_id') || "";
+    $('githubClientIdInput').value = localStorage.getItem('crm_github_client_id') || "Ov23liGGfMoztRrGRKHL";
   }
   
   // Load Notes Scratchpad
@@ -2838,7 +2838,7 @@ async function handleSocialLogin(provider) {
     return;
   }
 
-  const clientId = localStorage.getItem('crm_github_client_id') || "";
+  const clientId = localStorage.getItem('crm_github_client_id') || "Ov23liGGfMoztRrGRKHL";
   if (!clientId) {
     showToast('Por favor, configure o GitHub Client ID em Ajustes para ativar o login real!', 'warning');
     return;
