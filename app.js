@@ -155,7 +155,7 @@ function checkAuth() {
   }
 }
 
-function handleLogin() {
+async function handleLogin() {
   const emailInput = $('loginEmail').value.trim().toLowerCase();
   const passwordInput = $('loginPassword').value;
   const loginCard = $('loginCard');
@@ -163,7 +163,18 @@ function handleLogin() {
 
   // Find user in crm_users list
   const users = JSON.parse(localStorage.getItem('crm_users')) || [];
-  const foundUser = users.find(u => u.email.toLowerCase() === emailInput && u.password === passwordInput);
+  let foundUser = users.find(u => u.email.toLowerCase() === emailInput && u.password === passwordInput);
+
+  // Se não encontrar localmente, tenta carregar do Supabase
+  if (!foundUser) {
+    showToast('Buscando conta na nuvem...', 'info');
+    foundUser = await SupabaseSyncEngine.fetchProfile(emailInput, passwordInput);
+    if (foundUser) {
+      // Salva localmente na lista de usuários para acessos offline futuros
+      users.push(foundUser);
+      localStorage.setItem('crm_users', JSON.stringify(users));
+    }
+  }
 
   if (foundUser) {
     // Session save
@@ -352,6 +363,9 @@ function handleVerifyCode() {
       users.push(verificationTargetUser);
       localStorage.setItem('crm_users', JSON.stringify(users));
       
+      // Salva o cadastro do usuário na nuvem Supabase
+      SupabaseSyncEngine.pushProfile(verificationTargetUser);
+      
       // Auto log-in session
       localStorage.setItem('crm_active_user', JSON.stringify(verificationTargetUser));
       activeUser = verificationTargetUser;
@@ -422,6 +436,9 @@ function handleResetPassword() {
   if (userIndex !== -1) {
     users[userIndex].password = newPass;
     localStorage.setItem('crm_users', JSON.stringify(users));
+    
+    // Atualiza a senha na nuvem Supabase
+    SupabaseSyncEngine.pushProfile(users[userIndex]);
 
     showToast('Senha alterada com sucesso! Faça login com a nova senha.', 'success');
     
@@ -1761,6 +1778,64 @@ const SupabaseSyncEngine = {
   key: '',
   active: false,
 
+  async fetchProfile(email, password) {
+    if (!this.active) {
+      this.init();
+    }
+    if (!this.active) return null;
+    try {
+      const response = await fetch(`${this.url}/rest/v1/profiles?email=eq.${encodeURIComponent(email)}&password=eq.${encodeURIComponent(password)}`, {
+        method: 'GET',
+        headers: this.getHeaders()
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.length > 0) {
+          return {
+            name: data[0].name,
+            email: data[0].email,
+            password: data[0].password,
+            company: data[0].company,
+            logo: data[0].logo || ""
+          };
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao buscar perfil no Supabase:', e);
+    }
+    return null;
+  },
+
+  async pushProfile(user) {
+    if (!this.active) {
+      this.init();
+    }
+    if (!this.active) return;
+    try {
+      const record = {
+        email: user.email,
+        name: user.name,
+        password: user.password,
+        company: user.company,
+        logo: user.logo || ""
+      };
+      const response = await fetch(`${this.url}/rest/v1/profiles`, {
+        method: 'POST',
+        headers: {
+          ...this.getHeaders(),
+          'Prefer': 'resolution=merge-duplicates'
+        },
+        body: JSON.stringify(record)
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error('Erro ao salvar perfil no Supabase:', errText);
+      }
+    } catch (e) {
+      console.error('Erro de rede ao salvar perfil no Supabase:', e);
+    }
+  },
+
   init() {
     const isDisabled = localStorage.getItem(getUserKey('crm_supabase_disabled')) === 'true';
     
@@ -1831,8 +1906,28 @@ const SupabaseSyncEngine = {
       if (resClients.ok) {
         const dbClients = await resClients.json();
         if (dbClients) {
-          clients = dbClients.map(mapClientFromDb);
+          const cloudClients = dbClients.map(mapClientFromDb);
+          
+          // Bidirectional safe merge
+          const mergedClientsMap = new Map();
+          cloudClients.forEach(c => mergedClientsMap.set(c.id, c));
+          
+          let hasLocalOnlyClients = false;
+          clients.forEach(localClient => {
+            if (!mergedClientsMap.has(localClient.id)) {
+              // Client only exists locally (not in cloud). Keep it and push it.
+              mergedClientsMap.set(localClient.id, localClient);
+              this.pushRecord('clients', mapClientToDb(localClient));
+              hasLocalOnlyClients = true;
+            }
+          });
+          
+          clients = Array.from(mergedClientsMap.values());
           localStorage.setItem(getUserKey('crm_clients'), JSON.stringify(clients));
+          
+          if (hasLocalOnlyClients) {
+            console.log('Sincronizados clientes locais adicionais para a nuvem.');
+          }
         }
       }
 
@@ -1844,13 +1939,32 @@ const SupabaseSyncEngine = {
       if (resTodos.ok) {
         const dbTodos = await resTodos.json();
         if (dbTodos) {
-          // Filter or map todos directly
-          todos = dbTodos.map(t => ({
+          const cloudTodos = dbTodos.map(t => ({
             id: t.id,
             text: t.text,
             completed: t.completed
           }));
+          
+          // Bidirectional safe merge
+          const mergedTodosMap = new Map();
+          cloudTodos.forEach(t => mergedTodosMap.set(t.id, t));
+          
+          let hasLocalOnlyTodos = false;
+          todos.forEach(localTodo => {
+            if (!mergedTodosMap.has(localTodo.id)) {
+              // Todo only exists locally. Keep it and push it.
+              mergedTodosMap.set(localTodo.id, localTodo);
+              this.pushRecord('todos', mapTodoToDb(localTodo));
+              hasLocalOnlyTodos = true;
+            }
+          });
+          
+          todos = Array.from(mergedTodosMap.values());
           localStorage.setItem(getUserKey('crm_todos'), JSON.stringify(todos));
+          
+          if (hasLocalOnlyTodos) {
+            console.log('Sincronizados lembretes locais adicionais para a nuvem.');
+          }
         }
       }
 
@@ -1861,11 +1975,26 @@ const SupabaseSyncEngine = {
       });
       if (resNotes.ok) {
         const dbNotes = await resNotes.json();
+        const localNotes = localStorage.getItem(getUserKey('crm_scratchpad')) || "";
+        
         if (dbNotes && dbNotes.length > 0) {
           const notesText = dbNotes[0].content || '';
-          localStorage.setItem(getUserKey('crm_scratchpad'), notesText);
-          if ($('notesScratchpad')) {
-            $('notesScratchpad').value = notesText;
+          
+          // Merge logic for notepad
+          if (notesText.trim()) {
+            // Cloud has notes, update local
+            localStorage.setItem(getUserKey('crm_scratchpad'), notesText);
+            if ($('notesScratchpad')) {
+              $('notesScratchpad').value = notesText;
+            }
+          } else if (localNotes.trim() && !notesText.trim()) {
+            // Local has notes but cloud is empty. Push local notes to cloud.
+            this.pushRecord('scratchpad', { id: `single_notes_${activeUser.email}`, user_email: activeUser.email, content: localNotes });
+          }
+        } else {
+          // Cloud has no record for this user's scratchpad. Push local notes if they exist.
+          if (localNotes.trim()) {
+            this.pushRecord('scratchpad', { id: `single_notes_${activeUser.email}`, user_email: activeUser.email, content: localNotes });
           }
         }
       }
@@ -1958,6 +2087,9 @@ async function connectSupabaseCloud() {
 
 async function pushAllLocalDataToCloud() {
   if (!SupabaseSyncEngine.active || !activeUser) return;
+  
+  // Envia o perfil do usuário ativo para a nuvem
+  await SupabaseSyncEngine.pushProfile(activeUser);
   
   // Push clients
   for (const c of clients) {

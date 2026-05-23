@@ -34,7 +34,17 @@ Um aplicativo de alta fidelidade visual (premium glassmorphism, inspirado no iOS
 Para salvar seus dados na nuvem para sempre, crie um projeto gratuito no [Supabase](https://supabase.com) e execute o script SQL abaixo no **SQL Editor** do painel do Supabase:
 
 ```sql
--- 1. Tabela de Clientes
+-- 1. Tabela de Perfis de Usuários (Login)
+CREATE TABLE IF NOT EXISTS public.profiles (
+    email TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    password TEXT NOT NULL,
+    company TEXT NOT NULL,
+    logo TEXT, -- Base64 do logotipo
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 2. Tabela de Clientes
 CREATE TABLE IF NOT EXISTS public.clients (
     id TEXT PRIMARY KEY,
     user_email TEXT NOT NULL, -- Campo de isolamento lógico
@@ -56,7 +66,7 @@ CREATE TABLE IF NOT EXISTS public.clients (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 2. Tabela de Lembretes (To-Dos)
+-- 3. Tabela de Lembretes (To-Dos)
 CREATE TABLE IF NOT EXISTS public.todos (
     id TEXT PRIMARY KEY,
     user_email TEXT NOT NULL, -- Campo de isolamento lógico
@@ -65,7 +75,7 @@ CREATE TABLE IF NOT EXISTS public.todos (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 3. Tabela do Bloco de Notas (Scratchpad)
+-- 4. Tabela do Bloco de Notas (Scratchpad)
 CREATE TABLE IF NOT EXISTS public.scratchpad (
     id TEXT NOT NULL,
     user_email TEXT NOT NULL, -- Campo de isolamento lógico
@@ -73,6 +83,13 @@ CREATE TABLE IF NOT EXISTS public.scratchpad (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     PRIMARY KEY (id, user_email)
 );
+
+-- 5. IMPORTANTE: Desative o RLS (Row Level Security) para permitir que a REST API
+-- com a chave anônima (anon key) possa ler e gravar dados livremente.
+ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.clients DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.todos DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.scratchpad DISABLE ROW LEVEL SECURITY;
 ```
 
 ### 3. Conectar o App com a Nuvem

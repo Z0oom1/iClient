@@ -474,9 +474,20 @@
               <li>Crie uma <strong>New Query</strong>, copie e cole o código SQL abaixo e clique em <strong>Run</strong>:</li>
             </ol>
             
-            <textarea readonly class="sql-code-area" onclick="this.select();" style="width: 100%; height: 120px; font-family: monospace; font-size: 0.75rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 10px; color: var(--info); resize: none; overflow-y: auto;">-- 1. Tabela de Clientes
+            <textarea readonly class="sql-code-area" onclick="this.select();" style="width: 100%; height: 120px; font-family: monospace; font-size: 0.75rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 10px; color: var(--info); resize: none; overflow-y: auto;">-- 1. Tabela de Perfis de Usuários (Login)
+CREATE TABLE IF NOT EXISTS public.profiles (
+    email TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    password TEXT NOT NULL,
+    company TEXT NOT NULL,
+    logo TEXT, -- Base64 do logotipo
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 2. Tabela de Clientes
 CREATE TABLE IF NOT EXISTS public.clients (
     id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL, -- Campo de isolamento lógico
     name TEXT NOT NULL,
     company TEXT,
     email TEXT,
@@ -495,20 +506,30 @@ CREATE TABLE IF NOT EXISTS public.clients (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 2. Tabela de Lembretes (To-Dos)
+-- 3. Tabela de Lembretes (To-Dos)
 CREATE TABLE IF NOT EXISTS public.todos (
     id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL, -- Campo de isolamento lógico
     text TEXT NOT NULL,
     completed BOOLEAN DEFAULT false NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 3. Tabela do Bloco de Notas (Scratchpad)
+-- 4. Tabela do Bloco de Notas (Scratchpad)
 CREATE TABLE IF NOT EXISTS public.scratchpad (
-    id TEXT PRIMARY KEY DEFAULT 'single_notes',
+    id TEXT NOT NULL,
+    user_email TEXT NOT NULL, -- Campo de isolamento lógico
     content TEXT,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);</textarea>
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    PRIMARY KEY (id, user_email)
+);
+
+-- 5. IMPORTANTE: Desative o RLS (Row Level Security) para permitir que a REST API
+-- com a chave anônima (anon key) possa ler e gravar dados livremente.
+ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.clients DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.todos DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.scratchpad DISABLE ROW LEVEL SECURITY;</textarea>
             <p style="color: var(--text-muted); font-size: 0.7rem; margin-top: 4px;">💡 Clique no código acima para selecioná-lo por completo e copiar.</p>
           </div>
         </section>
