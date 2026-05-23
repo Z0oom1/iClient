@@ -2847,7 +2847,8 @@ async function handleSocialLogin(provider) {
   showToast('Iniciando pareamento com o GitHub...', 'info');
   
   try {
-    const response = await fetch(`https://corsproxy.io/?https://github.com/login/device/code?client_id=${clientId}&scope=read:user`, {
+    const targetUrl = `https://github.com/login/device/code?client_id=${clientId}&scope=read:user`;
+    const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json'
@@ -2855,7 +2856,8 @@ async function handleSocialLogin(provider) {
     });
     
     if (!response.ok) {
-      throw new Error('Erro ao conectar à API do GitHub');
+      const errBody = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errBody || 'Erro desconhecido'}`);
     }
     
     const data = await response.json();
@@ -2866,8 +2868,8 @@ async function handleSocialLogin(provider) {
       showToast('Falha no pareamento. Verifique se o Client ID é válido e possui Device Flow ativo.', 'error');
     }
   } catch (e) {
-    console.error(e);
-    showToast('Erro de conexão ao iniciar login social do GitHub.', 'error');
+    console.error('Erro de login no GitHub:', e);
+    showToast(`Erro de conexão ao iniciar login do GitHub: ${e.message}`, 'error');
   }
 }
 
@@ -2928,7 +2930,8 @@ function startDevicePolling(clientId, deviceCode, interval) {
   
   devicePollTimer = setInterval(async () => {
     try {
-      const response = await fetch(`https://corsproxy.io/?https://github.com/login/oauth/access_token?client_id=${clientId}&device_code=${deviceCode}&grant_type=urn:ietf:params:oauth:grant-type:device_code`, {
+      const targetUrl = `https://github.com/login/oauth/access_token?client_id=${clientId}&device_code=${deviceCode}&grant_type=urn:ietf:params:oauth:grant-type:device_code`;
+      const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`, {
         method: 'POST',
         headers: {
           'Accept': 'application/json'
