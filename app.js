@@ -70,8 +70,8 @@ function initCloudSyncInterval() {
   if (SupabaseSyncEngine.active && activeUser) {
     cloudSyncTimer = setInterval(() => {
       console.log('[Cloud Sync] Sincronizando dados compartilhados da empresa em segundo plano...');
-      SupabaseSyncEngine.pullAll();
-    }, 15000); // Sincroniza a cada 15 segundos
+      SupabaseSyncEngine.pullAll(true); // Silent pull
+    }, 4000); // Sincroniza a cada 4 segundos silenciosamente
   }
 }
 
@@ -309,24 +309,37 @@ async function handleLogin() {
     return;
   }
 
-  // Custom locked auth rules for CRdevs
-  if (selectedCompanyId === 'crdevs') {
-    if (loginInput !== 'z0oom1' && loginInput !== 'caiodevs@gmail.com') {
-      showToast('Acesso Restrito! Apenas a conta oficial da CRdevs é permitida.', 'error');
-      errorMsg.innerText = 'Conta bloqueada para novas inscrições!';
+  // Custom locked auth rules for Crdev
+  if (selectedCompanyId === 'crdev') {
+    if (passwordInput !== '@C4iovix2') {
+      showToast('Senha incorreta para a empresa Crdev!', 'error');
+      errorMsg.innerText = 'Senha incorreta para a empresa Crdev!';
       errorMsg.classList.add('visible');
       loginCard.classList.add('shake');
       setTimeout(() => loginCard.classList.remove('shake'), 500);
       return;
     }
-    if (passwordInput !== 'c4iovix2') {
-      showToast('Senha incorreta para a conta CRdevs!', 'error');
-      errorMsg.innerText = 'Senha incorreta para a conta CRdevs!';
-      errorMsg.classList.add('visible');
-      loginCard.classList.add('shake');
-      setTimeout(() => loginCard.classList.remove('shake'), 500);
-      return;
+    
+    // Auto-create/find Crdev admin user
+    const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+    let admin = users.find(u => u.username === 'Z0oom1' && u.companyId === 'crdev');
+    if (!admin) {
+      admin = {
+        username: 'Z0oom1',
+        name: 'Caio Rodrigues',
+        email: 'caiodevs@gmail.com',
+        password: '@C4iovix2',
+        companyId: 'crdev',
+        role: 'admin',
+        logo: ''
+      };
+      users.push(admin);
+      localStorage.setItem('crm_users', JSON.stringify(users));
+      if (SupabaseSyncEngine.active) {
+        SupabaseSyncEngine.pushProfile(admin);
+      }
     }
+    foundUser = admin;
   }
 
   // Search in local database scoping by selected company
@@ -1857,6 +1870,7 @@ function saveScratchpad() {
   $('scratchpadSaveTime').innerText = `Última alteração: salvo às ${timeStr}`;
 
   // Cloud Sync PUSH hook with 1s debounce
+  if (scratchpadSyncTimeout) clearTimeout(scratchpadSyncTimeout);
   scratchpadSyncTimeout = setTimeout(() => {
     SupabaseSyncEngine.pushRecord('scratchpad', { id: getSyncNotesId(), user_email: getSyncEmail(), content: text });
   }, 1000);
@@ -2178,7 +2192,7 @@ const SupabaseSyncEngine = {
                 name: p.name,
                 email: p.email,
                 password: p.password,
-                companyId: p.company || 'crdevs',
+                companyId: p.company || 'crdev',
                 logo: p.logo || '',
                 role: 'member'
               });
@@ -2186,7 +2200,7 @@ const SupabaseSyncEngine = {
               const idx = localUsers.findIndex(u => u.email === p.email);
               localUsers[idx].name = p.name;
               localUsers[idx].password = p.password;
-              localUsers[idx].companyId = p.company || 'crdevs';
+              localUsers[idx].companyId = p.company || 'crdev';
               localUsers[idx].logo = p.logo || localUsers[idx].logo;
             }
           });
@@ -2259,7 +2273,7 @@ const SupabaseSyncEngine = {
     }
   },
 
-  async pullAll() {
+  async pullAll(isSilent = false) {
     if (!this.active || !activeUser) return;
     try {
       // 1. Pull Clients scoped by user_email
@@ -2348,8 +2362,10 @@ const SupabaseSyncEngine = {
           if (notesText.trim()) {
             // Cloud has notes, update local
             localStorage.setItem(getUserKey('crm_scratchpad'), notesText);
-            if ($('notesScratchpad')) {
-              $('notesScratchpad').value = notesText;
+            if ($('notesScratchpad') && $('notesScratchpad').value !== notesText) {
+              if (document.activeElement !== $('notesScratchpad')) {
+                $('notesScratchpad').value = notesText;
+              }
             }
           } else if (localNotes.trim() && !notesText.trim()) {
             // Local has notes but cloud is empty. Push local notes to cloud.
@@ -2369,10 +2385,14 @@ const SupabaseSyncEngine = {
       renderTimeline();
       renderTodoList();
 
-      showToast('Dados sincronizados com a nuvem Supabase! ☁️', 'success');
+      if (!isSilent) {
+        showToast('Dados sincronizados com a nuvem Supabase! ☁️', 'success');
+      }
     } catch (e) {
       console.error('Erro ao puxar dados da nuvem:', e);
-      showToast('Conectado à nuvem, mas falhou ao sincronizar. Verifique se executou o script SQL no Supabase.', 'warning');
+      if (!isSilent) {
+        showToast('Conectado à nuvem, mas falhou ao sincronizar. Verifique se executou o script SQL no Supabase.', 'warning');
+      }
     }
   },
 
@@ -3028,44 +3048,62 @@ async function initCompaniesAndUsersSeed() {
     await SupabaseSyncEngine.pullAllProfiles();
   }
 
-  // Load or initialize companies - CRdevs ONLY by default!
+  // Load or initialize companies - Crdev ONLY by default!
   const localCompanies = localStorage.getItem('crm_companies');
-  if (!localCompanies || localCompanies.includes('"id":"google"')) {
+  if (!localCompanies || localCompanies.includes('"id":"crdevs"') || localCompanies.includes('"id":"google"')) {
     companies = [
-      { id: 'crdevs', name: 'CRdevs', logo: 'logo.png', isLocked: true }
+      { id: 'crdev', name: 'Crdev', logo: 'logo.png', isLocked: true }
     ];
     localStorage.setItem('crm_companies', JSON.stringify(companies));
+    
+    // Reset all users list to contain ONLY Crdev admin user
+    const adminUser = {
+      username: 'Z0oom1',
+      name: 'Caio Rodrigues',
+      email: 'caiodevs@gmail.com',
+      password: '@C4iovix2',
+      companyId: 'crdev',
+      role: 'admin',
+      logo: '' // Personal avatar
+    };
+    localStorage.setItem('crm_users', JSON.stringify([adminUser]));
+    
+    // Clear old active user if company isn't crdev
+    const activeUserStr = localStorage.getItem('crm_active_user');
+    if (activeUserStr) {
+      const parsed = JSON.parse(activeUserStr);
+      if (parsed.companyId !== 'crdev') {
+        localStorage.removeItem('crm_active_user');
+        activeUser = null;
+      }
+    }
   } else {
     companies = JSON.parse(localCompanies);
   }
 
-  // Load or initialize users
-  const localUsers = localStorage.getItem('crm_users');
-  let usersList = [];
-  if (localUsers) {
-    usersList = JSON.parse(localUsers);
-  }
+  // Load users list
+  let usersList = JSON.parse(localStorage.getItem('crm_users')) || [];
   
-  // Ensure Z0oom1 admin exists in crm_users
-  const hasAdmin = usersList.some(u => u.username === 'Z0oom1' || u.email === 'caiodevs@gmail.com');
+  // Ensure Z0oom1 admin exists in crm_users under crdev
+  const hasAdmin = usersList.some(u => u.username === 'Z0oom1' && u.companyId === 'crdev');
   if (!hasAdmin) {
-    usersList.push({
+    usersList = [{
       username: 'Z0oom1',
       name: 'Caio Rodrigues',
       email: 'caiodevs@gmail.com',
-      password: 'C4iovix2',
-      companyId: 'crdevs',
+      password: '@C4iovix2',
+      companyId: 'crdev',
       role: 'admin',
       logo: '' // Personal avatar
-    });
+    }];
     localStorage.setItem('crm_users', JSON.stringify(usersList));
   }
 
   // Seeding to Cloud if active
   if (SupabaseSyncEngine.active) {
-    const crdevsComp = companies.find(c => c.id === 'crdevs');
-    if (crdevsComp) {
-      await SupabaseSyncEngine.pushCompany(crdevsComp);
+    const crdevComp = companies.find(c => c.id === 'crdev');
+    if (crdevComp) {
+      await SupabaseSyncEngine.pushCompany(crdevComp);
     }
     const adminUser = usersList.find(u => u.username === 'Z0oom1');
     if (adminUser) {
@@ -3112,18 +3150,26 @@ function selectCompanyPortal(companyId) {
   $('loginLogoImg').src = comp.logo;
   $('loginCompanyName').innerText = comp.name;
   
-  // Enforce CRdevs login lock restrictions
-  if (companyId === 'crdevs') {
+  if (companyId === 'crdev') {
+    // Crdev is unique: hides email and members grid, and ONLY requires password @C4iovix2
+    $('loginMembersArea').style.display = 'none';
+    $('loginForm').style.display = 'block';
+    $('loginEmailGroup').style.display = 'none';
+    $('loginEmail').value = 'caiodevs@gmail.com'; // Pre-set the admin email
+    $('loginPassword').value = '';
+    $('labelLoginPassword').innerText = 'Senha de Acesso';
     $('authLinksContainer').style.display = 'none';
     $('socialLoginSeparator').style.display = 'none';
     $('socialLoginGrid').style.display = 'none';
+    $('btnBackToMembers').style.display = 'none';
+    $('loginPassword').focus();
   } else {
+    // Normal company portal experience
     $('authLinksContainer').style.display = 'block';
     $('socialLoginSeparator').style.display = 'block';
     $('socialLoginGrid').style.display = 'flex';
+    showMembersGrid();
   }
-
-  showMembersGrid();
 }
 
 function showCompanyPortal() {
@@ -3192,10 +3238,11 @@ function showTraditionalLogin() {
   $('labelLoginPassword').innerText = 'Senha';
   $('btnBackToMembers').style.display = 'none';
   
-  if (selectedCompanyId === 'crdevs') {
+  if (selectedCompanyId === 'crdev') {
     $('authLinksContainer').style.display = 'none';
     $('socialLoginSeparator').style.display = 'none';
     $('socialLoginGrid').style.display = 'none';
+    $('loginEmailGroup').style.display = 'none';
   } else {
     $('authLinksContainer').style.display = 'block';
     $('socialLoginSeparator').style.display = 'block';
@@ -3603,16 +3650,16 @@ async function updatePresence() {
     lastSeen: now
   });
 
-  // If CRdevs, inject mock colleagues Lucas and Beatriz
-  if (compId === 'crdevs') {
+  // If Crdev, inject mock colleagues Lucas and Beatriz
+  if (compId === 'crdev') {
     presenceList.push({
-      email: 'lucas.techlead@crdevs.com.br',
+      email: 'lucas.techlead@crdev.com.br',
       name: 'Lucas (Tech Lead)',
       logo: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&h=120&q=80',
       lastSeen: now
     });
     presenceList.push({
-      email: 'beatriz.ux@crdevs.com.br',
+      email: 'beatriz.ux@crdev.com.br',
       name: 'Beatriz (UX Designer)',
       logo: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&h=120&q=80',
       lastSeen: now
