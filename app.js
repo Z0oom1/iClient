@@ -3080,6 +3080,21 @@ async function fetchWithCORSBypass(targetUrl, options = {}) {
   throw lastError || new Error("Todos os proxies CORS falharam.");
 }
 
+async function parseResponseTextOrJson(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    const params = new URLSearchParams(text);
+    const data = {};
+    for (const [key, value] of params.entries()) {
+      data[key] = value;
+    }
+    if (data.interval) data.interval = parseInt(data.interval) || 5;
+    return data;
+  }
+}
+
 async function handleSocialLogin(provider) {
   if (provider.toLowerCase() !== 'github') return;
   
@@ -3110,7 +3125,7 @@ async function handleSocialLogin(provider) {
       throw new Error(`HTTP ${response.status}: ${errBody || 'Erro desconhecido'}`);
     }
     
-    const data = await response.json();
+    const data = await parseResponseTextOrJson(response);
     if (data.user_code) {
       openGitHubDeviceModal(data.user_code, data.verification_uri);
       startDevicePolling(clientId, data.device_code, data.interval || 5);
@@ -3188,7 +3203,7 @@ function startDevicePolling(clientId, deviceCode, interval) {
         }
       });
       
-      const tokenData = await response.json();
+      const tokenData = await parseResponseTextOrJson(response);
       
       if (tokenData.access_token) {
         clearInterval(devicePollTimer);
