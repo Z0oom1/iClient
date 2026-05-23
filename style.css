@@ -412,23 +412,251 @@ button, input, select, textarea {
    ========================================================================== */
 .tabbar {
   position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 90%;
-  max-width: 500px;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  max-width: none;
   height: var(--tabbar-height);
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius-lg);
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(40px) saturate(210%);
+  -webkit-backdrop-filter: blur(40px) saturate(210%);
+  border-top: 1px solid var(--glass-border);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-radius: 0;
   display: flex;
   justify-content: space-around;
   align-items: center;
   padding: 0 16px;
-  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 -5px 30px rgba(0, 0, 0, 0.4);
   z-index: 99;
+  transform: none;
+}
+
+/* --- Presence Indicators (Header) --- */
+.presence-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-border);
+  padding: 6px 14px;
+  border-radius: 24px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+  margin-right: 12px;
+  transition: all 0.25s ease;
+}
+
+.presence-indicator:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.presence-stack {
+  display: flex;
+  align-items: center;
+}
+
+.presence-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid #10b981; /* neon green active */
+  margin-left: -8px;
+  object-fit: cover;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+  background: var(--panel-bg);
+  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+  cursor: pointer;
+}
+
+.presence-avatar:first-child {
+  margin-left: 0;
+}
+
+.presence-avatar:hover {
+  transform: scale(1.25) translateY(-3px);
+  z-index: 10;
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.7);
+}
+
+.presence-count {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0.01em;
+}
+
+/* --- Company Portal (Multi-Tenant Selector) --- */
+.company-portal-view {
+  width: 100%;
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.company-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin: 20px 0;
+}
+
+@media (max-width: 480px) {
+  .company-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.company-portal-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--border-radius-md);
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.company-portal-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--primary);
+  box-shadow: 0 10px 25px rgba(99, 102, 241, 0.15), inset 0 1px 0 rgba(255,255,255,0.1);
+  transform: translateY(-4px);
+}
+
+.company-portal-card.locked:hover {
+  border-color: var(--warning);
+  box-shadow: 0 10px 25px rgba(245, 158, 11, 0.15);
+}
+
+.company-portal-card img {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0,0,0,0.2);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  transition: transform 0.3s;
+}
+
+.company-portal-card:hover img {
+  transform: scale(1.1);
+}
+
+.company-portal-card h4 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: 'Outfit', sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.company-badge-lock {
+  color: var(--warning);
+  display: flex;
+  align-items: center;
+}
+
+/* --- Social Login Integrations --- */
+.social-login-separator {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 16px 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.social-login-separator::before,
+.social-login-separator::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.social-login-separator span {
+  padding: 0 10px;
+}
+
+.social-login-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.btn-social {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.btn-social:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.btn-social img, .btn-social svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* Back button on login card */
+.btn-back-portal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: color 0.2s;
+  margin-bottom: 12px;
+  align-self: flex-start;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.btn-back-portal:hover {
+  color: var(--primary);
+  background: rgba(255,255,255,0.03);
+}
+
+.btn-back-portal svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.2s;
+}
+
+.btn-back-portal:hover svg {
+  transform: translateX(-2px);
 }
 
 .tab-item {

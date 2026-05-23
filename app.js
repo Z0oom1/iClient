@@ -15,6 +15,11 @@ let verificationCode = "";
 let verificationType = ""; // 'register' or 'recover'
 let verificationTargetUser = null; // Temp user storage
 let selectedLogoBase64 = ""; // Loaded company logo from file selector
+let selectedCompanyId = null;
+let companies = [];
+let presenceTimer = null;
+let adminCompanyLogoBase64 = "";
+let newCompanyLogoBase64 = "";
 
 // Helper: Get element by ID
 const $ = (id) => document.getElementById(id);
@@ -28,10 +33,16 @@ function sanitizeSupabaseUrl(url) {
   return clean;
 }
 
-// Scoping Helper: scopes localstorage keys by user email
+// Scoping Helper: scopes localstorage keys by company or user email
 function getUserKey(key) {
   if (activeUser && activeUser.email) {
-    return `${key}_${activeUser.email}`;
+    // Shared company-wide resources
+    if (['crm_clients', 'crm_todos', 'crm_scratchpad', 'crm_scratchpad_time', 'crm_github_token'].includes(key)) {
+      const compId = activeUser.companyId || 'local';
+      return `${key}_company_${compId}`;
+    }
+    // Scoped individual user preferences (wallpapers, theme color, local states)
+    return `${key}_user_${activeUser.email}`;
   }
   return key;
 }
@@ -116,9 +127,13 @@ function loadScopedUserData() {
 }
 
 function checkAuth() {
+  // Inicializa a lista de empresas e o seeding administrativo
+  initCompaniesAndUsersSeed();
+
   const sessionStr = localStorage.getItem('crm_active_user');
   if (sessionStr) {
     activeUser = JSON.parse(sessionStr);
+    selectedCompanyId = activeUser.companyId;
     
     // Load scoped data
     loadScopedUserData();
@@ -146,10 +161,13 @@ function checkAuth() {
       $('headerCompanyLogo').style.display = 'block';
       $('headerAvatar').style.display = 'none';
     } else {
-      $('headerAvatar').innerText = getInitials(activeUser.company || activeUser.name);
+      $('headerAvatar').innerText = getInitials(activeUser.name);
       $('headerAvatar').style.display = 'flex';
       $('headerCompanyLogo').style.display = 'none';
     }
+
+    // Inicia o motor de presença online do time
+    initPresenceEngine();
 
     removeLogoSelect(null);
 
@@ -163,54 +181,94 @@ function checkAuth() {
     renderTodoList();
   } else {
     activeUser = null;
+    selectedCompanyId = null;
+
+    // Para o motor de presença se deslogado
+    if (presenceTimer) clearInterval(presenceTimer);
+    if ($('presenceIndicator')) $('presenceIndicator').style.display = 'none';
+
     // Reseta o wallpaper para o padrão ao deslogar
     document.body.style.background = `linear-gradient(rgba(15, 23, 42, 0.75), rgba(15, 23, 42, 0.85)), url('bg.png') no-repeat center center / cover`;
     
     $('loginOverlay').style.display = 'flex';
     $('appContainer').style.display = 'none';
-    showLoginView();
+    
+    // Mostra o portal corporativo de seleção
+    showCompanyPortal();
+    renderCompanyPortal();
   }
 }
 
 async function handleLogin() {
-  const emailInput = $('loginEmail').value.trim().toLowerCase();
+  const loginInput = $('loginEmail').value.trim().toLowerCase();
   const passwordInput = $('loginPassword').value;
   const loginCard = $('loginCard');
   const errorMsg = $('loginError');
 
-  // Find user in crm_users list
-  const users = JSON.parse(localStorage.getItem('crm_users')) || [];
-  let foundUser = users.find(u => u.email.toLowerCase() === emailInput && u.password === passwordInput);
+  if (!selectedCompanyId) {
+    showToast('Selecione uma empresa primeiro!', 'warning');
+    return;
+  }
 
-  // Se não encontrar localmente, tenta carregar do Supabase
+  // Custom locked auth rules for CRdevs
+  if (selectedCompanyId === 'crdevs') {
+    if (loginInput !== 'z0oom1' && loginInput !== 'caiodevs@gmail.com') {
+      showToast('Acesso Restrito! Apenas a conta oficial da CRdevs é permitida.', 'error');
+      errorMsg.innerText = 'Conta bloqueada para novas inscrições!';
+      errorMsg.classList.add('visible');
+      loginCard.classList.add('shake');
+      setTimeout(() => loginCard.classList.remove('shake'), 500);
+      return;
+    }
+    if (passwordInput !== 'c4iovix2') {
+      showToast('Senha incorreta para a conta CRdevs!', 'error');
+      errorMsg.innerText = 'Senha incorreta para a conta CRdevs!';
+      errorMsg.classList.add('visible');
+      loginCard.classList.add('shake');
+      setTimeout(() => loginCard.classList.remove('shake'), 500);
+      return;
+    }
+  }
+
+  // Search in local database scoping by selected company
+  const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+  let foundUser = users.find(u => 
+    u.companyId === selectedCompanyId && 
+    (u.email.toLowerCase() === loginInput || (u.username && u.username.toLowerCase() === loginInput)) && 
+    u.password === passwordInput
+  );
+
+  // If not found local, check Supabase
   if (!foundUser) {
-    showToast('Buscando conta na nuvem...', 'info');
-    foundUser = await SupabaseSyncEngine.fetchProfile(emailInput, passwordInput);
+    showToast('Buscando conta corporativa...', 'info');
+    foundUser = await SupabaseSyncEngine.fetchProfile(loginInput, passwordInput);
     if (foundUser) {
-      // Salva localmente na lista de usuários para acessos offline futuros
+      if (!foundUser.companyId) foundUser.companyId = selectedCompanyId;
       users.push(foundUser);
       localStorage.setItem('crm_users', JSON.stringify(users));
     }
   }
 
   if (foundUser) {
-    // Session save
-    localStorage.setItem('crm_active_user', JSON.stringify(foundUser));
+    errorMsg.classList.remove('visible');
     activeUser = foundUser;
     
+    // Persist session
+    localStorage.setItem('crm_active_user', JSON.stringify(activeUser));
+    
     loadScopedUserData();
-    showToast(`Bem-vindo de volta, ${foundUser.name}! 🚀`, 'success');
+    showToast(`Bem-vindo de volta à empresa ${companies.find(c => c.id === selectedCompanyId).name}! 🚀`, 'success');
     
     // Smooth transition
     $('loginOverlay').style.opacity = 0;
     setTimeout(() => {
       checkAuth();
-      $('loginOverlay').style.opacity = 1; // reset for logout later
+      $('loginOverlay').style.opacity = 1;
     }, 400);
   } else {
     // Shake animation
     loginCard.classList.add('shake');
-    errorMsg.innerText = "E-mail ou senha incorretos. Tente novamente!";
+    errorMsg.innerText = "Login ou senha incorretos para esta empresa!";
     errorMsg.classList.add('visible');
     
     setTimeout(() => {
@@ -332,13 +390,14 @@ function removeLogoSelect(event) {
 
 // --- Auth Actions: Register, Recovery PIN generation & Gmail Inbox Simulator ---
 function handleRegister() {
+  const username = $('regUsername').value.trim();
   const name = $('regName').value.trim();
   const email = $('regEmail').value.trim().toLowerCase();
   const password = $('regPassword').value;
-  const company = $('regCompany').value.trim();
   const logo = selectedLogoBase64 || "";
+  const companyId = selectedCompanyId;
 
-  if (!name || !email || !password || !company) {
+  if (!username || !name || !email || !password || !companyId) {
     showToast('Por favor, preencha todos os campos obrigatórios.', 'warning');
     return;
   }
@@ -348,11 +407,17 @@ function handleRegister() {
     return;
   }
 
-  // Check unique email
+  // Check unique email and username
   const users = JSON.parse(localStorage.getItem('crm_users')) || [];
-  const exists = users.some(u => u.email.toLowerCase() === email);
-  if (exists) {
+  const emailExists = users.some(u => u.email.toLowerCase() === email);
+  const usernameExists = users.some(u => u.username && u.username.toLowerCase() === username.toLowerCase());
+
+  if (emailExists) {
     showToast('E-mail já cadastrado! Faça login ou recupere a senha.', 'error');
+    return;
+  }
+  if (usernameExists) {
+    showToast('Nome de Usuário (Login) já cadastrado! Escolha outro.', 'error');
     return;
   }
 
@@ -360,7 +425,7 @@ function handleRegister() {
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   verificationCode = code;
   verificationType = "register";
-  verificationTargetUser = { name, email, password, company, logo };
+  verificationTargetUser = { username, name, email, password, companyId, logo, role: 'member' };
 
   showVerificationView(`Insira o código de 6 dígitos enviado para ${email}`);
   showMockEmail(email, name, code, "Confirmação de Cadastro");
@@ -2585,7 +2650,7 @@ function populateProfileSettings() {
   if (!activeUser) return;
   
   if ($('profileName')) $('profileName').value = activeUser.name || '';
-  if ($('profileCompany')) $('profileCompany').value = activeUser.company || '';
+  if ($('profileUsername')) $('profileUsername').value = activeUser.username || '';
   if ($('profileEmail')) $('profileEmail').value = activeUser.email || '';
   if ($('profilePassword')) $('profilePassword').value = ''; 
 
@@ -2603,18 +2668,16 @@ async function saveProfileInfo() {
   if (!activeUser) return;
 
   const name = $('profileName').value.trim();
-  const company = $('profileCompany').value.trim();
   const password = $('profilePassword').value;
   const logo = selectedProfileLogoBase64 || "";
 
-  if (!name || !company) {
+  if (!name) {
     showToast('Por favor, preencha todos os campos obrigatórios.', 'warning');
     return;
   }
 
   // Update active user details
   activeUser.name = name;
-  activeUser.company = company;
   if (password) {
     activeUser.password = password;
   }
@@ -2628,7 +2691,6 @@ async function saveProfileInfo() {
   const uIdx = users.findIndex(u => u.email.toLowerCase() === activeUser.email.toLowerCase());
   if (uIdx !== -1) {
     users[uIdx].name = name;
-    users[uIdx].company = company;
     if (password) {
       users[uIdx].password = password;
     }
@@ -2651,7 +2713,7 @@ async function saveProfileInfo() {
     if ($('headerAvatar')) $('headerAvatar').style.display = 'none';
   } else {
     if ($('headerAvatar')) {
-      $('headerAvatar').innerText = getInitials(activeUser.company || activeUser.name);
+      $('headerAvatar').innerText = getInitials(activeUser.name);
       $('headerAvatar').style.display = 'flex';
     }
     if ($('headerCompanyLogo')) $('headerCompanyLogo').style.display = 'none';
@@ -2660,3 +2722,465 @@ async function saveProfileInfo() {
   updateClockAndGreeting();
   showToast('Perfil atualizado com sucesso!', 'success');
 }
+
+// ==========================================================================
+// 18. Multi-Tenant Corporate Portal & Seeding
+// ==========================================================================
+
+function initCompaniesAndUsersSeed() {
+  // Load or initialize companies
+  const localCompanies = localStorage.getItem('crm_companies');
+  if (!localCompanies) {
+    companies = [
+      { id: 'crdevs', name: 'CRdevs', logo: 'logo.png', isLocked: true },
+      { id: 'google', name: 'Google', logo: 'https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg', isLocked: false },
+      { id: 'apple', name: 'Apple', logo: 'https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg', isLocked: false },
+      { id: 'github', name: 'GitHub', logo: 'https://upload.wikimedia.org/wikipedia/commons/9/91/Octicons-mark-github.svg', isLocked: false }
+    ];
+    localStorage.setItem('crm_companies', JSON.stringify(companies));
+  } else {
+    companies = JSON.parse(localCompanies);
+  }
+
+  // Load or initialize users
+  const localUsers = localStorage.getItem('crm_users');
+  let users = [];
+  if (localUsers) {
+    users = JSON.parse(localUsers);
+  }
+  
+  // Ensure Z0oom1 admin exists in crm_users
+  const hasAdmin = users.some(u => u.username === 'Z0oom1' || u.email === 'caiodevs@gmail.com');
+  if (!hasAdmin) {
+    users.push({
+      username: 'Z0oom1',
+      name: 'Caio Rodrigues',
+      email: 'caiodevs@gmail.com',
+      password: 'C4iovix2',
+      companyId: 'crdevs',
+      role: 'admin',
+      logo: '' // Personal avatar
+    });
+    localStorage.setItem('crm_users', JSON.stringify(users));
+  }
+}
+
+function renderCompanyPortal() {
+  const grid = $('companyPortalGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  
+  companies.forEach(comp => {
+    const card = document.createElement('div');
+    card.className = `company-portal-card ${comp.isLocked ? 'locked' : ''}`;
+    card.onclick = () => selectCompanyPortal(comp.id);
+    
+    card.innerHTML = `
+      <img src="${comp.logo}" alt="${comp.name}" onerror="this.src='logo.png'">
+      <h4>
+        ${comp.name}
+        ${comp.isLocked ? `
+          <span class="company-badge-lock" title="Acesso Restrito">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width: 14px; height: 14px;">
+              <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 00-5.25 5.25v3a3 3 0 00-3 3v6.75a3 3 0 003 3h10.5a3 3 0 003-3v-6.75a3 3 0 00-3-3v-3c0-2.9-2.35-5.25-5.25-5.25zm3.75 8.25v-3a3.75 3.75 0 10-7.5 0v3h7.5z" clip-rule="evenodd" />
+            </svg>
+          </span>
+        ` : ''}
+      </h4>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function selectCompanyPortal(companyId) {
+  selectedCompanyId = companyId;
+  const comp = companies.find(c => c.id === companyId);
+  if (!comp) return;
+
+  $('companyPortalView').style.display = 'none';
+  $('loginCard').style.display = 'block';
+  
+  $('loginLogoImg').src = comp.logo;
+  $('loginCompanyName').innerText = comp.name;
+  
+  // Hide standard links if CRdevs to enforce locks
+  if (companyId === 'crdevs') {
+    $('authLinksContainer').style.display = 'none';
+  } else {
+    $('authLinksContainer').style.display = 'block';
+  }
+  
+  showLoginView();
+}
+
+function showCompanyPortal() {
+  selectedCompanyId = null;
+  $('loginCard').style.display = 'none';
+  $('companyPortalView').style.display = 'block';
+  renderCompanyPortal();
+}
+
+// ==========================================================================
+// 19. Simulated Social SSO Authentication
+// ==========================================================================
+
+function handleSocialLogin(provider) {
+  if (!selectedCompanyId) {
+    showToast('Selecione uma empresa primeiro!', 'warning');
+    return;
+  }
+  
+  const providerNames = {
+    google: { name: 'Google User', email: `google_${Date.now()}@gmail.com`, avatar: 'https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg' },
+    github: { name: 'GitHub Developer', email: `github_${Date.now()}@github.com`, avatar: 'https://upload.wikimedia.org/wikipedia/commons/9/91/Octicons-mark-github.svg' },
+    apple: { name: 'Apple Customer', email: `apple_${Date.now()}@icloud.com`, avatar: 'https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg' }
+  };
+
+  const pData = providerNames[provider.toLowerCase()] || providerNames.google;
+  
+  showToast(`Autenticando via ${provider.toUpperCase()}...`, 'info');
+  
+  setTimeout(() => {
+    const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+    
+    // Check if user already exists
+    let foundUser = users.find(u => u.email === pData.email && u.companyId === selectedCompanyId);
+    if (!foundUser) {
+      foundUser = {
+        username: provider + '_' + Math.floor(1000 + Math.random() * 9000),
+        name: pData.name,
+        email: pData.email,
+        password: 'social-sso-bypass',
+        companyId: selectedCompanyId,
+        logo: pData.avatar, // Personal avatar
+        role: 'member'
+      };
+      users.push(foundUser);
+      localStorage.setItem('crm_users', JSON.stringify(users));
+      
+      // Sync with Supabase Cloud
+      SupabaseSyncEngine.pushProfile(foundUser);
+    }
+    
+    activeUser = foundUser;
+    localStorage.setItem('crm_active_user', JSON.stringify(activeUser));
+    loadScopedUserData();
+    
+    showToast(`Conectado com sucesso via ${provider.toUpperCase()}! 🚀`, 'success');
+    
+    $('loginOverlay').style.opacity = 0;
+    setTimeout(() => {
+      checkAuth();
+      $('loginOverlay').style.opacity = 1;
+    }, 400);
+    
+  }, 1000);
+}
+
+// ==========================================================================
+// 20. Real-Time Presence Indicator Engine
+// ==========================================================================
+
+function initPresenceEngine() {
+  if (presenceTimer) clearInterval(presenceTimer);
+  
+  // Initial run
+  updatePresence();
+  
+  // Loop every 3 seconds
+  presenceTimer = setInterval(updatePresence, 3000);
+}
+
+function updatePresence() {
+  if (!activeUser || !activeUser.companyId) return;
+
+  const compId = activeUser.companyId;
+  const presenceKey = `crm_presence_${compId}`;
+  
+  let presenceList = [];
+  try {
+    presenceList = JSON.parse(localStorage.getItem(presenceKey)) || [];
+  } catch (e) {
+    presenceList = [];
+  }
+
+  // Filter out stale users (inactive for more than 8 seconds)
+  const now = Date.now();
+  presenceList = presenceList.filter(u => (now - u.lastSeen) < 8000 && u.email !== activeUser.email);
+
+  // Add/update current user
+  presenceList.push({
+    email: activeUser.email,
+    name: activeUser.name,
+    logo: activeUser.logo || '',
+    lastSeen: now
+  });
+
+  // If CRdevs, inject mock colleagues Lucas and Beatriz
+  if (compId === 'crdevs') {
+    presenceList.push({
+      email: 'lucas.techlead@crdevs.com.br',
+      name: 'Lucas (Tech Lead)',
+      logo: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&h=120&q=80',
+      lastSeen: now
+    });
+    presenceList.push({
+      email: 'beatriz.ux@crdevs.com.br',
+      name: 'Beatriz (UX Designer)',
+      logo: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&h=120&q=80',
+      lastSeen: now
+    });
+  }
+
+  // Save list back
+  localStorage.setItem(presenceKey, JSON.stringify(presenceList));
+
+  // Render the presence indicator
+  renderPresenceIndicator(presenceList);
+}
+
+function renderPresenceIndicator(presenceList) {
+  const container = $('presenceIndicator');
+  const stack = $('presenceStack');
+  const count = $('presenceCount');
+  
+  if (!container || !stack || !count) return;
+
+  if (!activeUser) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'flex';
+  stack.innerHTML = '';
+  
+  // Display at most 4 avatars
+  const displayList = presenceList.slice(0, 4);
+  displayList.forEach(user => {
+    if (user.logo) {
+      const avatar = document.createElement('img');
+      avatar.className = 'presence-avatar';
+      avatar.src = user.logo;
+      avatar.title = user.name;
+      stack.appendChild(avatar);
+    } else {
+      const avatar = document.createElement('div');
+      avatar.className = 'presence-avatar';
+      avatar.title = user.name;
+      avatar.style.display = 'flex';
+      avatar.style.alignItems = 'center';
+      avatar.style.justifyContent = 'center';
+      avatar.style.fontSize = '0.7rem';
+      avatar.style.fontWeight = '700';
+      avatar.style.color = '#fff';
+      avatar.style.background = 'var(--primary)';
+      avatar.innerText = getInitials(user.name);
+      stack.appendChild(avatar);
+    }
+  });
+
+  count.innerText = `${presenceList.length} online`;
+}
+
+// ==========================================================================
+// 21. Corporate Admin Gates
+// ==========================================================================
+
+function unlockAdminCompanySettings() {
+  if (!activeUser) return;
+  
+  if (activeUser.role === 'admin') {
+    revealAdminCompanyControls();
+    showToast('Acesso de Administrador concedido automaticamente!', 'success');
+    return;
+  }
+  
+  const pin = prompt('Digite a senha de administrador da empresa para desbloquear estes ajustes:');
+  if (pin === '1234') {
+    revealAdminCompanyControls();
+    showToast('Ajustes corporativos desbloqueados com sucesso!', 'success');
+  } else if (pin !== null) {
+    showToast('Senha de administrador incorreta!', 'error');
+  }
+}
+
+function revealAdminCompanyControls() {
+  $('adminCompanyLocked').style.display = 'none';
+  $('adminCompanyUnlocked').style.display = 'flex';
+  
+  const comp = companies.find(c => c.id === activeUser.companyId);
+  if (comp) {
+    $('adminCompanyName').value = comp.name;
+    if (comp.logo) {
+      $('adminLogoPreviewImg').src = comp.logo;
+      $('adminLogoPreviewContainer').style.display = 'block';
+    } else {
+      $('adminLogoPreviewContainer').style.display = 'none';
+    }
+  }
+}
+
+function handleAdminCompanyLogoSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    showToast('Por favor, selecione uma imagem válida.', 'error');
+    return;
+  }
+
+  if (file.size > 2 * 1024 * 1024) {
+    showToast('A imagem deve ter no máximo 2MB.', 'error');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    adminCompanyLogoBase64 = e.target.result;
+    
+    $('adminLogoPreviewImg').src = adminCompanyLogoBase64;
+    $('adminLogoPreviewContainer').style.display = 'block';
+    
+    showToast('Logotipo corporativo carregado!', 'success');
+  };
+  reader.readAsDataURL(file);
+}
+
+function saveAdminCompanyInfo() {
+  if (!activeUser || !activeUser.companyId) return;
+
+  const newName = $('adminCompanyName').value.trim();
+  if (!newName) {
+    showToast('O nome da empresa não pode ser vazio!', 'warning');
+    return;
+  }
+
+  const compIndex = companies.findIndex(c => c.id === activeUser.companyId);
+  if (compIndex !== -1) {
+    companies[compIndex].name = newName;
+    if (adminCompanyLogoBase64) {
+      companies[compIndex].logo = adminCompanyLogoBase64;
+    }
+    localStorage.setItem('crm_companies', JSON.stringify(companies));
+    
+    showToast('Dados corporativos atualizados com sucesso!', 'success');
+    
+    // Lock back
+    $('adminCompanyUnlocked').style.display = 'none';
+    $('adminCompanyLocked').style.display = 'block';
+    
+    // Refresh header company logo if same
+    if (companies[compIndex].logo) {
+      // If user had no avatar, we keep header company logo or display
+      showToast('Empresa atualizada! As alterações serão propagadas.', 'info');
+    }
+    
+    // Propagate change via localStorage to other tabs
+    localStorage.setItem('crm_trigger_reload', Date.now().toString());
+  }
+}
+
+// ==========================================================================
+// 22. New Company Creation Modals
+// ==========================================================================
+
+function openAddCompanyModal() {
+  $('addCompanyForm').reset();
+  removeNewCompanyLogoSelect(null);
+  $('modalAddCompany').style.display = 'flex';
+}
+
+function closeAddCompanyModal(event) {
+  if (event === null || event.target === $('modalAddCompany')) {
+    $('modalAddCompany').style.display = 'none';
+  }
+}
+
+function handleNewCompanyLogoSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    showToast('Por favor, selecione uma imagem de logo válida.', 'error');
+    return;
+  }
+
+  if (file.size > 2 * 1024 * 1024) {
+    showToast('A imagem do logo deve ter no máximo 2MB.', 'error');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    newCompanyLogoBase64 = e.target.result;
+    
+    $('newCompanyLogoPreviewImg').src = newCompanyLogoBase64;
+    $('newCompanyLogoPreviewContainer').style.display = 'block';
+    $('newCompanyUploadPlaceholder').style.display = 'none';
+    
+    showToast('Logo da nova empresa carregado!', 'success');
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeNewCompanyLogoSelect(event) {
+  if (event) event.stopPropagation();
+  newCompanyLogoBase64 = "";
+  $('newCompanyLogoInput').value = "";
+  $('newCompanyLogoPreviewImg').src = "";
+  $('newCompanyLogoPreviewContainer').style.display = 'none';
+  $('newCompanyUploadPlaceholder').style.display = 'flex';
+}
+
+function saveNewCompany() {
+  const name = $('newCompanyName').value.trim();
+  if (!name) {
+    showToast('Por favor, preencha o nome da empresa.', 'warning');
+    return;
+  }
+
+  const id = name.toLowerCase().replace(/[^a-z0-9]/g, '-') + '-' + Math.floor(1000 + Math.random() * 9000);
+  
+  const newComp = {
+    id: id,
+    name: name,
+    logo: newCompanyLogoBase64 || 'logo.png',
+    isLocked: false
+  };
+
+  companies.push(newComp);
+  localStorage.setItem('crm_companies', JSON.stringify(companies));
+  
+  showToast(`Empresa "${name}" cadastrada com sucesso!`, 'success');
+  
+  closeAddCompanyModal(null);
+  renderCompanyPortal();
+}
+
+// ==========================================================================
+// 23. Real-Time Multi-Tab Synchronization Broadcast
+// ==========================================================================
+
+window.addEventListener('storage', (e) => {
+  if (e.key && (e.key.startsWith('crm_') || e.key === 'crm_trigger_reload')) {
+    loadScopedUserData();
+    
+    // Repaint all active grids based on active view in the DOM
+    const activeView = document.querySelector('.app-view.active');
+    if (activeView) {
+      const viewId = activeView.id;
+      if (viewId === 'viewDashboard') {
+        renderDashboard();
+      } else if (viewId === 'viewClientes') {
+        renderClientsList();
+      } else if (viewId === 'viewAgenda') {
+        renderTimeline();
+      } else if (viewId === 'viewLembretes') {
+        renderTodoList();
+      } else if (viewId === 'viewConfiguracoes') {
+        renderWallpaperGrid();
+        populateProfileSettings();
+      }
+    }
+  }
+});
