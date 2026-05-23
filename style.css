@@ -3033,5 +3033,199 @@ body.light-theme .btn-back-portal:hover {
   color: #0f172a;
 }
 
+/* ==========================================================================
+   24. Premium Calendar & Segmented Controls (iOS HIG Guidelines)
+   ========================================================================== */
+.segmented-control {
+  display: flex;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 3px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.segment-btn {
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  padding: 6px 14px;
+  border-radius: 9px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.segment-btn.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary) !important;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+}
+
+.calendar-day {
+  aspect-ratio: 1;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.calendar-day:hover:not(.past-day) {
+  background: rgba(255,255,255,0.08);
+  transform: translateY(-2px);
+  border-color: var(--primary);
+}
+
+.calendar-day.past-day {
+  opacity: 0.25;
+  cursor: not-allowed;
+  background: rgba(255,255,255,0.01) !important;
+  border-color: rgba(255,255,255,0.02) !important;
+}
+
+.calendar-day.today {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1.5px solid var(--primary);
+}
+
+/* Event border modifications (Padding-box and border-box gradient hack) */
+.calendar-day.has-reuniao {
+  background: linear-gradient(rgba(15,23,42,0.9), rgba(15,23,42,0.9)) padding-box, linear-gradient(135deg, #f59e0b, #f59e0b) border-box !important;
+  border: 2.5px solid transparent !important;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.3) !important;
+}
+
+.calendar-day.has-entrega {
+  background: linear-gradient(rgba(15,23,42,0.9), rgba(15,23,42,0.9)) padding-box, linear-gradient(135deg, #10b981, #10b981) border-box !important;
+  border: 2.5px solid transparent !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.3) !important;
+}
+
+.calendar-day.has-manutencao {
+  background: linear-gradient(rgba(15,23,42,0.9), rgba(15,23,42,0.9)) padding-box, linear-gradient(135deg, #ef4444, #ef4444) border-box !important;
+  border: 2.5px solid transparent !important;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.3) !important;
+}
+
+.calendar-day.has-reuniao-entrega {
+  background: linear-gradient(rgba(15,23,42,0.9), rgba(15,23,42,0.9)) padding-box, linear-gradient(135deg, #f59e0b 50%, #10b981 50%) border-box !important;
+  border: 2.5px solid transparent !important;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.2) !important;
+}
+
+.calendar-day.has-reuniao-manutencao {
+  background: linear-gradient(rgba(15,23,42,0.9), rgba(15,23,42,0.9)) padding-box, linear-gradient(135deg, #f59e0b 50%, #ef4444 50%) border-box !important;
+  border: 2.5px solid transparent !important;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.2) !important;
+}
+
+.calendar-day.has-entrega-manutencao {
+  background: linear-gradient(rgba(15,23,42,0.9), rgba(15,23,42,0.9)) padding-box, linear-gradient(135deg, #10b981 50%, #ef4444 50%) border-box !important;
+  border: 2.5px solid transparent !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.2) !important;
+}
+
+.calendar-day.has-three-events {
+  background: linear-gradient(rgba(15,23,42,0.9), rgba(15,23,42,0.9)) padding-box, conic-gradient(#f59e0b 0% 33%, #10b981 33% 66%, #ef4444 66% 100%) border-box !important;
+  border: 2.5px solid transparent !important;
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.15) !important;
+}
+
+.calendar-event-indicators {
+  display: flex;
+  gap: 3.5px;
+  margin-top: 5px;
+  justify-content: center;
+}
+
+.calendar-indicator-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+.calendar-indicator-dot.reuniao { background: #f59e0b; }
+.calendar-indicator-dot.entrega { background: #10b981; }
+.calendar-indicator-dot.manutencao { background: #ef4444; }
+
+/* Light Theme overrides for Calendar */
+body.light-theme .calendar-day {
+  background: rgba(15, 23, 42, 0.02);
+  border-color: rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+}
+
+body.light-theme .calendar-day:hover:not(.past-day) {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+body.light-theme .calendar-day.past-day {
+  background: rgba(0,0,0,0.01) !important;
+  border-color: rgba(0,0,0,0.02) !important;
+}
+
+body.light-theme .calendar-day.today {
+  background: rgba(99, 102, 241, 0.08);
+  border-color: var(--primary);
+}
+
+/* Light Theme padding-box adjustment (interior remains white/light-gray) */
+body.light-theme .calendar-day.has-reuniao,
+body.light-theme .calendar-day.has-entrega,
+body.light-theme .calendar-day.has-manutencao,
+body.light-theme .calendar-day.has-reuniao-entrega,
+body.light-theme .calendar-day.has-reuniao-manutencao,
+body.light-theme .calendar-day.has-entrega-manutencao,
+body.light-theme .calendar-day.has-three-events {
+  background-clip: padding-box, border-box !important;
+}
+
+body.light-theme .calendar-day.has-reuniao {
+  background: linear-gradient(#f8fafc, #f8fafc) padding-box, linear-gradient(135deg, #f59e0b, #f59e0b) border-box !important;
+}
+body.light-theme .calendar-day.has-entrega {
+  background: linear-gradient(#f8fafc, #f8fafc) padding-box, linear-gradient(135deg, #10b981, #10b981) border-box !important;
+}
+body.light-theme .calendar-day.has-manutencao {
+  background: linear-gradient(#f8fafc, #f8fafc) padding-box, linear-gradient(135deg, #ef4444, #ef4444) border-box !important;
+}
+body.light-theme .calendar-day.has-reuniao-entrega {
+  background: linear-gradient(#f8fafc, #f8fafc) padding-box, linear-gradient(135deg, #f59e0b 50%, #10b981 50%) border-box !important;
+}
+body.light-theme .calendar-day.has-reuniao-manutencao {
+  background: linear-gradient(#f8fafc, #f8fafc) padding-box, linear-gradient(135deg, #f59e0b 50%, #ef4444 50%) border-box !important;
+}
+body.light-theme .calendar-day.has-entrega-manutencao {
+  background: linear-gradient(#f8fafc, #f8fafc) padding-box, linear-gradient(135deg, #10b981 50%, #ef4444 50%) border-box !important;
+}
+body.light-theme .calendar-day.has-three-events {
+  background: linear-gradient(#f8fafc, #f8fafc) padding-box, conic-gradient(#f59e0b 0% 33%, #10b981 33% 66%, #ef4444 66% 100%) border-box !important;
+}
+
+body.light-theme .segmented-control {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+body.light-theme .segment-btn {
+  color: #64748b;
+}
+
+body.light-theme .segment-btn.active {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
+}
+
+
 
 

@@ -441,12 +441,46 @@
          C. Timeline Agenda View
          ========================================================================== -->
     <main id="viewAgenda" class="app-view">
-      <div class="view-header-block">
-        <h1 class="view-title">Linha do Tempo de Contatos</h1>
+      <div class="view-header-block" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+        <h1 class="view-title" id="agendaViewTitle">Linha do Tempo de Contatos</h1>
+        
+        <!-- Apple-style Segmented Control -->
+        <div class="segmented-control">
+          <button class="segment-btn active" id="btnShowTimeline" onclick="switchAgendaSubView('timeline')">Linha do Tempo</button>
+          <button class="segment-btn" id="btnShowCalendar" onclick="switchAgendaSubView('calendar')">Calendário</button>
+        </div>
       </div>
 
-      <div class="timeline-container" id="timelineContainer">
+      <!-- A. Linha do Tempo Sub-View -->
+      <div class="timeline-container" id="timelineContainer" style="display: block;">
         <!-- Dynamic nodes representing Primeiros Contatos and Próximos Contatos -->
+      </div>
+
+      <!-- B. Calendário Sub-View -->
+      <div id="calendarSubView" style="display: none; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 24px; padding: 20px; backdrop-filter: blur(20px); margin-bottom: 100px;">
+        <div class="calendar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <h2 id="calendarMonthYear" style="font-family: 'Outfit', sans-serif; font-size: 1.25rem; font-weight: 700; color: var(--text-primary);">Junho 2026</h2>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" onclick="navigateCalendarMonth(-1)" class="btn-secondary" style="padding: 8px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px;">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 16px; height: 16px;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+            <button type="button" onclick="navigateCalendarMonth(1)" class="btn-secondary" style="padding: 8px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px;">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 16px; height: 16px;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 0.8rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">
+          <div>DOM</div><div>SEG</div><div>TER</div><div>QUA</div><div>QUI</div><div>SEX</div><div>SÁB</div>
+        </div>
+
+        <div class="calendar-days-grid" id="calendarDaysGrid" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; text-align: center;">
+          <!-- Dynamically generated days -->
+        </div>
       </div>
     </main>
 
@@ -1382,20 +1416,20 @@ ALTER TABLE public.scratchpad DISABLE ROW LEVEL SECURITY;</textarea>
       </svg>
       Editar Cadastro
     </button>
-    
-    <div class="context-menu-divider"></div>
-    
-    <!-- Status selector inside context menu -->
-    <div class="menu-status-section">
-      <span class="menu-section-title">Alterar Status</span>
-      <div class="menu-status-grid">
-        <button class="status-btn idealizando" id="menuStatusIdealizando" onclick="changeProjectStatusDirect('Idealizando')">Idealizando</button>
-        <button class="status-btn estrutura" id="menuStatusEstrutura" onclick="changeProjectStatusDirect('Estrutura sendo feita')">Estrutura</button>
-        <button class="status-btn testes" id="menuStatusTestes" onclick="changeProjectStatusDirect('Fase de testes')">Testes</button>
-        <button class="status-btn deploy" id="menuStatusDeploy" onclick="changeProjectStatusDirect('Deploy')">Deploy</button>
-        <button class="status-btn manutencao" id="menuStatusManutencao" onclick="changeProjectStatusDirect('Manutenção')">Manutenção</button>
-      </div>
-    </div>
+
+    <button class="context-menu-item" onclick="toggleStatusDropdownMenu()">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <span>Status: <strong id="contextMenuCurrentStatus" style="color: var(--primary);">Idealizando</strong></span>
+    </button>
+
+    <button class="context-menu-item" onclick="openScheduleEventModal()">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+      </svg>
+      Agendar Compromisso
+    </button>
     
     <div class="context-menu-divider"></div>
     

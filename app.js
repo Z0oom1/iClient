@@ -21,6 +21,12 @@ let presenceTimer = null;
 let adminCompanyLogoBase64 = "";
 let newCompanyLogoBase64 = "";
 
+// Advanced Session and Calendar Global Variables
+let sessionStartTime = Date.now();
+let calendarEvents = [];
+let currentCalendarDate = new Date();
+let activeCalendarSubView = 'timeline';
+
 // Helper: Get element by ID
 const $ = (id) => document.getElementById(id);
 
@@ -102,7 +108,7 @@ function initApp() {
   
   // Start countdown & meeting scanning engines
   setInterval(updateLiveCountdowns, 10000); // Update countdown tags every 10s
-  setInterval(scanUpcomingMeetingsForAlerts, 30000); // Scan for alerts every 30s
+  setInterval(scanAllDeadlinesAndEvents, 30000); // Scan for alerts every 30s
   
   // Request Notification Permissions on load
   if ('Notification' in window && Notification.permission === 'default') {
@@ -116,6 +122,7 @@ async function loadScopedUserData() {
   clients = JSON.parse(localStorage.getItem(getUserKey('crm_clients'))) || [];
   todos = JSON.parse(localStorage.getItem(getUserKey('crm_todos'))) || [];
   githubToken = localStorage.getItem(getUserKey('crm_github_token')) || "";
+  calendarEvents = JSON.parse(localStorage.getItem(getUserKey('crm_calendar_events'))) || [];
   
   // Set values in config tab if elements exist
   if ($('githubTokenInput')) {
@@ -2295,11 +2302,29 @@ const SupabaseSyncEngine = {
   async pullAll(isSilent = false) {
     if (!this.active || !activeUser) return;
     try {
-      // 1. Pull Clients scoped by user_email
-      const resClients = await fetch(`${this.url}/rest/v1/clients?user_email=eq.${getSyncEmail()}`, {
-        method: 'GET',
-        headers: this.getHeaders()
-      });
+      const companyId = activeUser.companyId || 'local';
+
+      // Parallelized Promise.all fetch for all elements
+      const [resClients, resTodos, resNotes, resEvents] = await Promise.all([
+        fetch(`${this.url}/rest/v1/clients?user_email=eq.${getSyncEmail()}`, {
+          method: 'GET',
+          headers: this.getHeaders()
+        }),
+        fetch(`${this.url}/rest/v1/todos?user_email=eq.${getSyncEmail()}`, {
+          method: 'GET',
+          headers: this.getHeaders()
+        }),
+        fetch(`${this.url}/rest/v1/scratchpad?id=eq.${getSyncNotesId()}`, {
+          method: 'GET',
+          headers: this.getHeaders()
+        }),
+        fetch(`${this.url}/rest/v1/scratchpad?id=eq.calendar_events_${companyId}`, {
+          method: 'GET',
+          headers: this.getHeaders()
+        })
+      ]);
+
+      // 1. Process Clients Scoped
       if (resClients.ok) {
         const dbClients = await resClients.json();
         if (dbClients) {
@@ -2312,7 +2337,6 @@ const SupabaseSyncEngine = {
           let hasLocalOnlyClients = false;
           clients.forEach(localClient => {
             if (!mergedClientsMap.has(localClient.id)) {
-              // Client only exists locally (not in cloud). Keep it and push it.
               mergedClientsMap.set(localClient.id, localClient);
               this.pushRecord('clients', mapClientToDb(localClient));
               hasLocalOnlyClients = true;
@@ -2328,11 +2352,7 @@ const SupabaseSyncEngine = {
         }
       }
 
-      // 2. Pull Todos scoped by user_email
-      const resTodos = await fetch(`${this.url}/rest/v1/todos?user_email=eq.${getSyncEmail()}`, {
-        method: 'GET',
-        headers: this.getHeaders()
-      });
+      // 2. Process Todos Scoped
       if (resTodos.ok) {
         const dbTodos = await resTodos.json();
         if (dbTodos) {
@@ -2349,7 +2369,6 @@ const SupabaseSyncEngine = {
           let hasLocalOnlyTodos = false;
           todos.forEach(localTodo => {
             if (!mergedTodosMap.has(localTodo.id)) {
-              // Todo only exists locally. Keep it and push it.
               mergedTodosMap.set(localTodo.id, localTodo);
               this.pushRecord('todos', mapTodoToDb(localTodo));
               hasLocalOnlyTodos = true;
@@ -2365,11 +2384,7 @@ const SupabaseSyncEngine = {
         }
       }
 
-      // 3. Pull Scratchpad scoped by id
-      const resNotes = await fetch(`${this.url}/rest/v1/scratchpad?id=eq.${getSyncNotesId()}`, {
-        method: 'GET',
-        headers: this.getHeaders()
-      });
+      // 3. Process Scratchpad Notepad Scoped
       if (resNotes.ok) {
         const dbNotes = await resNotes.json();
         const localNotes = localStorage.getItem(getUserKey('crm_scratchpad')) || "";
@@ -2379,7 +2394,6 @@ const SupabaseSyncEngine = {
           
           // Merge logic for notepad
           if (notesText.trim()) {
-            // Cloud has notes, update local
             localStorage.setItem(getUserKey('crm_scratchpad'), notesText);
             if ($('notesScratchpad') && $('notesScratchpad').value !== notesText) {
               if (document.activeElement !== $('notesScratchpad')) {
@@ -2387,15 +2401,39 @@ const SupabaseSyncEngine = {
               }
             }
           } else if (localNotes.trim() && !notesText.trim()) {
-            // Local has notes but cloud is empty. Push local notes to cloud.
             this.pushRecord('scratchpad', { id: getSyncNotesId(), user_email: getSyncEmail(), content: localNotes });
           }
         } else {
-          // Cloud has no record for this user's scratchpad. Push local notes if they exist.
           if (localNotes.trim()) {
             this.pushRecord('scratchpad', { id: getSyncNotesId(), user_email: getSyncEmail(), content: localNotes });
           }
         }
+      }
+
+      // 4. Process Calendar Events Scoped
+      if (resEvents.ok) {
+        const dbEvents = await resEvents.json();
+        if (dbEvents && dbEvents.length > 0 && dbEvents[0].content) {
+          try {
+            calendarEvents = JSON.parse(dbEvents[0].content) || [];
+          } catch(e) {
+            console.error('Erro ao processar calendarEvents da nuvem:', e);
+          }
+        } else {
+          // If cloud has no record, backup local to cloud
+          const localEvents = JSON.parse(localStorage.getItem(getUserKey('crm_calendar_events'))) || [];
+          if (localEvents.length > 0) {
+            calendarEvents = localEvents;
+            this.pushRecord('scratchpad', {
+              id: `calendar_events_${companyId}`,
+              user_email: `company_${companyId}`,
+              content: JSON.stringify(calendarEvents)
+            });
+          } else {
+            calendarEvents = [];
+          }
+        }
+        localStorage.setItem(getUserKey('crm_calendar_events'), JSON.stringify(calendarEvents));
       }
 
       // Trigger re-renders
@@ -2404,11 +2442,16 @@ const SupabaseSyncEngine = {
       renderTimeline();
       renderTodoList();
 
+      // Trigger calendar repaint if currently active
+      if (activeCalendarSubView === 'calendar') {
+        renderCalendarGrid();
+      }
+
       if (!isSilent) {
         showToast('Dados sincronizados com a nuvem Supabase! ☁️', 'success');
       }
     } catch (e) {
-      console.error('Erro ao puxar dados da nuvem:', e);
+      console.error('Erro ao puxar dados da nuvem em paralelo:', e);
       if (!isSilent) {
         showToast('Conectado à nuvem, mas falhou ao sincronizar. Verifique se executou o script SQL no Supabase.', 'warning');
       }
@@ -3061,66 +3104,36 @@ async function initCompaniesAndUsersSeed() {
   SupabaseSyncEngine.init();
   
   if (SupabaseSyncEngine.active) {
-    // 1. Pull companies list from Supabase scratchpad
-    await SupabaseSyncEngine.pullCompanies();
-    // 2. Pull all profiles from Supabase profiles table
-    await SupabaseSyncEngine.pullAllProfiles();
+    // Pull companies and profiles in parallel
+    await Promise.all([
+      SupabaseSyncEngine.pullCompanies(),
+      SupabaseSyncEngine.pullAllProfiles()
+    ]);
   }
 
-  // Load or initialize companies - Crdev ONLY by default!
+  // Load and sanitize companies list (always filter legacy, always ensure crdev exists)
   const localCompanies = localStorage.getItem('crm_companies');
   let parsedCompanies = [];
   try {
     parsedCompanies = JSON.parse(localCompanies) || [];
   } catch (e) {}
 
-  const hasLegacy = parsedCompanies.some(c => c.id === 'crdevs' || c.id === 'google');
-  if (parsedCompanies.length === 0 || hasLegacy) {
-    // Filter out legacy and keep new custom companies
-    companies = parsedCompanies.filter(c => c.id !== 'crdevs' && c.id !== 'google');
-    // Ensure Crdev is in there
-    if (!companies.some(c => c.id === 'crdev')) {
-      companies.push({ id: 'crdev', name: 'Crdev', logo: 'logo.png', isLocked: true });
-    }
-    localStorage.setItem('crm_companies', JSON.stringify(companies));
-    
-    // Clean old users to filter out crdevs/google users but keep other custom companies users
-    let usersList = JSON.parse(localStorage.getItem('crm_users')) || [];
-    usersList = usersList.filter(u => u.companyId !== 'crdevs' && u.companyId !== 'google');
-    
-    // Ensure admin user exists for crdev
-    if (!usersList.some(u => u.username === 'Z0oom1' && u.companyId === 'crdev')) {
-      usersList.push({
-        username: 'Z0oom1',
-        name: 'Caio Rodrigues',
-        email: 'caiodevs@gmail.com',
-        password: '@C4iovix2',
-        companyId: 'crdev',
-        role: 'admin',
-        logo: '' // Personal avatar
-      });
-    }
-    localStorage.setItem('crm_users', JSON.stringify(usersList));
-
-    // Clear active user session if it was logged to a legacy company
-    const activeUserStr = localStorage.getItem('crm_active_user');
-    if (activeUserStr) {
-      const parsed = JSON.parse(activeUserStr);
-      if (parsed.companyId === 'crdevs' || parsed.companyId === 'google') {
-        localStorage.removeItem('crm_active_user');
-        activeUser = null;
-      }
-    }
-  } else {
-    companies = parsedCompanies;
-  }
-
-  // Load users list
-  let usersList = JSON.parse(localStorage.getItem('crm_users')) || [];
+  companies = parsedCompanies.filter(c => c.id !== 'crdevs' && c.id !== 'google');
   
-  // Ensure Z0oom1 admin exists in crm_users under crdev
-  const hasAdmin = usersList.some(u => u.username === 'Z0oom1' && u.companyId === 'crdev');
-  if (!hasAdmin) {
+  if (!companies.some(c => c.id === 'crdev')) {
+    companies.unshift({ id: 'crdev', name: 'Crdev', logo: 'logo.png', isLocked: true });
+  }
+  localStorage.setItem('crm_companies', JSON.stringify(companies));
+
+  // Load and sanitize users list (always filter legacy, always ensure admin Z0oom1 exists under crdev)
+  let usersList = [];
+  try {
+    usersList = JSON.parse(localStorage.getItem('crm_users')) || [];
+  } catch (e) {}
+
+  usersList = usersList.filter(u => u.companyId !== 'crdevs' && u.companyId !== 'google');
+
+  if (!usersList.some(u => u.username === 'Z0oom1' && u.companyId === 'crdev')) {
     usersList.push({
       username: 'Z0oom1',
       name: 'Caio Rodrigues',
@@ -3130,18 +3143,35 @@ async function initCompaniesAndUsersSeed() {
       role: 'admin',
       logo: '' // Personal avatar
     });
-    localStorage.setItem('crm_users', JSON.stringify(usersList));
+  }
+  localStorage.setItem('crm_users', JSON.stringify(usersList));
+
+  // Clear active user session if it was logged to a legacy company
+  const activeUserStr = localStorage.getItem('crm_active_user');
+  if (activeUserStr) {
+    try {
+      const parsed = JSON.parse(activeUserStr);
+      if (parsed.companyId === 'crdevs' || parsed.companyId === 'google') {
+        localStorage.removeItem('crm_active_user');
+        activeUser = null;
+      }
+    } catch (e) {}
   }
 
-  // Seeding to Cloud if active
+  // Seeding to Cloud in parallel if active
   if (SupabaseSyncEngine.active) {
     const crdevComp = companies.find(c => c.id === 'crdev');
-    if (crdevComp) {
-      await SupabaseSyncEngine.pushCompany(crdevComp);
-    }
     const adminUser = usersList.find(u => u.username === 'Z0oom1' && u.companyId === 'crdev');
+    
+    const seedPromises = [];
+    if (crdevComp) {
+      seedPromises.push(SupabaseSyncEngine.pushCompany(crdevComp));
+    }
     if (adminUser) {
-      await SupabaseSyncEngine.pushProfile(adminUser);
+      seedPromises.push(SupabaseSyncEngine.pushProfile(adminUser));
+    }
+    if (seedPromises.length > 0) {
+      await Promise.all(seedPromises);
     }
   }
 }
@@ -3681,22 +3711,28 @@ async function updatePresence() {
     email: activeUser.email,
     name: activeUser.name,
     logo: activeUser.logo || '',
-    lastSeen: now
+    role: activeUser.role === 'admin' ? 'Administrador' : 'Colaborador',
+    lastSeen: now,
+    sessionStart: sessionStartTime
   });
 
-  // If Crdev, inject mock colleagues Lucas and Beatriz
+  // If Crdev, inject mock colleagues Lucas and Beatriz with simulated realistic session durations
   if (compId === 'crdev') {
     presenceList.push({
       email: 'lucas.techlead@crdev.com.br',
-      name: 'Lucas (Tech Lead)',
+      name: 'Lucas',
       logo: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&h=120&q=80',
-      lastSeen: now
+      role: 'Tech Lead',
+      lastSeen: now,
+      sessionStart: now - 2 * 60 * 60 * 1000 - 15 * 60 * 1000 // 2h 15m ago
     });
     presenceList.push({
       email: 'beatriz.ux@crdev.com.br',
-      name: 'Beatriz (UX Designer)',
+      name: 'Beatriz',
       logo: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&h=120&q=80',
-      lastSeen: now
+      role: 'UX Designer',
+      lastSeen: now,
+      sessionStart: now - 1 * 60 * 60 * 1000 - 45 * 60 * 1000 // 1h 45m ago
     });
   }
 
@@ -3746,16 +3782,12 @@ function renderPresenceIndicator(presenceList) {
   // Display at most 4 avatars
   const displayList = presenceList.slice(0, 4);
   displayList.forEach(user => {
+    let avatar;
     if (user.logo) {
-      const avatar = document.createElement('img');
-      avatar.className = 'presence-avatar';
+      avatar = document.createElement('img');
       avatar.src = user.logo;
-      avatar.title = user.name;
-      stack.appendChild(avatar);
     } else {
-      const avatar = document.createElement('div');
-      avatar.className = 'presence-avatar';
-      avatar.title = user.name;
+      avatar = document.createElement('div');
       avatar.style.display = 'flex';
       avatar.style.alignItems = 'center';
       avatar.style.justifyContent = 'center';
@@ -3764,11 +3796,95 @@ function renderPresenceIndicator(presenceList) {
       avatar.style.color = '#fff';
       avatar.style.background = 'var(--primary)';
       avatar.innerText = getInitials(user.name);
-      stack.appendChild(avatar);
     }
+    avatar.className = 'presence-avatar';
+    avatar.title = `${user.name} (${user.role || 'Membro'}) - Clique para ver perfil`;
+    avatar.style.cursor = 'pointer';
+    avatar.style.transition = 'all 0.2s';
+    avatar.onclick = () => showMiniProfile(user);
+    stack.appendChild(avatar);
   });
 
   count.innerText = `${presenceList.length} online`;
+}
+
+function showMiniProfile(user) {
+  let modal = $('presenceMiniProfileModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'presenceMiniProfileModal';
+    modal.style.position = 'fixed';
+    modal.style.top = '0';
+    modal.style.left = '0';
+    modal.style.width = '100vw';
+    modal.style.height = '100vh';
+    modal.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+    modal.style.backdropFilter = 'blur(10px)';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.zIndex = '10000';
+    modal.onclick = (e) => {
+      if (e.target === modal) modal.style.display = 'none';
+    };
+    document.body.appendChild(modal);
+  }
+
+  const elapsedMs = Date.now() - (user.sessionStart || Date.now());
+  const elapsedMinutes = Math.floor(elapsedMs / 60000);
+  let timeStr = 'Conectado agora mesmo';
+  if (elapsedMinutes > 0) {
+    const hrs = Math.floor(elapsedMinutes / 60);
+    const mins = elapsedMinutes % 60;
+    if (hrs > 0) {
+      timeStr = `Conectado há ${hrs}h ${mins}m`;
+    } else {
+      timeStr = `Conectado há ${mins}m`;
+    }
+  }
+
+  const roleText = user.role || (user.email === 'caiodevs@gmail.com' ? 'Administrador' : 'Colaborador');
+  const roleBadgeColor = roleText.toLowerCase().includes('admin') || roleText.toLowerCase().includes('lead') ? 'var(--primary)' : 'rgba(255,255,255,0.4)';
+
+  let avatarHtml = '';
+  if (user.logo) {
+    avatarHtml = `<img src="${user.logo}" style="width: 90px; height: 90px; border-radius: 50%; border: 3px solid var(--primary); object-fit: cover; box-shadow: 0 0 15px rgba(99,102,241,0.3);" />`;
+  } else {
+    avatarHtml = `
+      <div style="width: 90px; height: 90px; border-radius: 50%; border: 3px solid var(--primary); background: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 700; color: #fff; box-shadow: 0 0 15px rgba(99,102,241,0.3);">
+        ${getInitials(user.name)}
+      </div>`;
+  }
+
+  modal.innerHTML = `
+    <div class="glass-panel" style="width: 320px; padding: 30px; border-radius: 24px; text-align: center; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 20px 40px rgba(0,0,0,0.5); backdrop-filter: blur(20px); position: relative; animation: modalAppear 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);">
+      <button onclick="document.getElementById('presenceMiniProfileModal').style.display='none'" style="position: absolute; top: 15px; right: 15px; background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 5px;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 20px; height: 20px;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+      
+      <div style="display: inline-block; position: relative; margin-bottom: 16px;">
+        ${avatarHtml}
+        <span style="position: absolute; bottom: 5px; right: 5px; width: 16px; height: 16px; border-radius: 50%; background: #10b981; border: 2.5px solid #111827; box-shadow: 0 0 8px #10b981;"></span>
+      </div>
+
+      <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.35rem; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">${user.name}</h3>
+      <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px; word-break: break-all;">${user.email}</p>
+      
+      <div style="display: inline-block; padding: 4px 12px; border-radius: 20px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.05); font-size: 0.75rem; font-weight: 600; color: ${roleBadgeColor}; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 0.05em;">
+        ${roleText}
+      </div>
+
+      <div style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 15px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 16px; height: 16px; color: #10b981;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">${timeStr}</span>
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
 }
 
 // ==========================================================================
@@ -3937,7 +4053,16 @@ function saveNewCompany() {
     isLocked: false
   };
 
-  companies.push(newComp);
+  // Reload the latest companies from localStorage to prevent overwriting other new/synced companies
+  let latestCompanies = [];
+  try {
+    latestCompanies = JSON.parse(localStorage.getItem('crm_companies')) || [];
+  } catch (e) {}
+
+  if (!latestCompanies.some(c => c.id === id)) {
+    latestCompanies.push(newComp);
+  }
+  companies = latestCompanies;
   localStorage.setItem('crm_companies', JSON.stringify(companies));
   
   if (SupabaseSyncEngine.active) {
@@ -3967,7 +4092,11 @@ window.addEventListener('storage', (e) => {
       } else if (viewId === 'viewClientes') {
         renderClientsList();
       } else if (viewId === 'viewAgenda') {
-        renderTimeline();
+        if (activeCalendarSubView === 'timeline') {
+          renderTimeline();
+        } else {
+          renderCalendarGrid();
+        }
       } else if (viewId === 'viewLembretes') {
         renderTodoList();
       } else if (viewId === 'viewConfiguracoes') {
@@ -3977,3 +4106,582 @@ window.addEventListener('storage', (e) => {
     }
   }
 });
+
+// ==========================================================================
+// 24. Premium Compact Status Selector & Event Scheduler
+// ==========================================================================
+
+function toggleStatusDropdownMenu() {
+  if (!activeContextMenuClientId) return;
+  const client = clients.find(c => c.id === activeContextMenuClientId);
+  if (!client) return;
+  
+  closeContextMenu();
+
+  let modal = $('statusPickerModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'statusPickerModal';
+    modal.style.position = 'fixed';
+    modal.style.top = '0';
+    modal.style.left = '0';
+    modal.style.width = '100vw';
+    modal.style.height = '100vh';
+    modal.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+    modal.style.backdropFilter = 'blur(10px)';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.zIndex = '10000';
+    modal.onclick = (e) => {
+      if (e.target === modal) modal.style.display = 'none';
+    };
+    document.body.appendChild(modal);
+  }
+
+  const statuses = [
+    { label: 'Idealizando', color: '#6366f1' },
+    { label: 'Estrutura sendo feita', color: '#3b82f6' },
+    { label: 'Fase de testes', color: '#eab308' },
+    { label: 'Deploy', color: '#10b981' },
+    { label: 'Manutenção', color: '#ef4444' }
+  ];
+
+  let listHtml = '';
+  statuses.forEach(s => {
+    const isActive = client.projectStatus === s.label;
+    const activeBorder = isActive ? 'border: 2.5px solid var(--primary); background: rgba(255,255,255,0.06);' : 'border: 1px solid rgba(255,255,255,0.04);';
+    listHtml += `
+      <button onclick="selectNewProjectStatus('${s.label}')" style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 12px 16px; margin-bottom: 8px; border-radius: 12px; background: rgba(255,255,255,0.02); color: var(--text-primary); font-family: 'Outfit', sans-serif; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: all 0.2s; ${activeBorder}">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="width: 10px; height: 10px; border-radius: 50%; background: ${s.color};"></span>
+          <span>${s.label}</span>
+        </div>
+        ${isActive ? `
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 16px; height: 16px; color: var(--primary);">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+        </svg>` : ''}
+      </button>
+    `;
+  });
+
+  modal.innerHTML = `
+    <div class="glass-panel" style="width: 320px; padding: 25px; border-radius: 20px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(20px); box-shadow: 0 20px 40px rgba(0,0,0,0.5); position: relative; animation: modalAppear 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);">
+      <button onclick="document.getElementById('statusPickerModal').style.display='none'" style="position: absolute; top: 15px; right: 15px; background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 5px;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 18px; height: 18px;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+      <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.15rem; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; text-align: center;">Alterar Status</h3>
+      <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 20px; text-align: center; font-weight: 500;">${client.projectName}</p>
+      
+      <div style="margin-top: 10px;">
+        ${listHtml}
+      </div>
+    </div>
+  `;
+
+  modal.style.display = 'flex';
+}
+
+async function selectNewProjectStatus(newStatus) {
+  if (!activeContextMenuClientId) return;
+  const id = activeContextMenuClientId;
+  const clientIndex = clients.findIndex(c => c.id === id);
+  if (clientIndex !== -1) {
+    clients[clientIndex].projectStatus = newStatus;
+    localStorage.setItem(getUserKey('crm_clients'), JSON.stringify(clients));
+    
+    // Sync with Supabase
+    if (SupabaseSyncEngine.active) {
+      SupabaseSyncEngine.pushRecord('clients', mapClientToDb(clients[clientIndex]));
+    }
+    
+    showToast(`Status atualizado para "${newStatus}"!`, 'success');
+    
+    const picker = $('statusPickerModal');
+    if (picker) picker.style.display = 'none';
+    
+    renderDashboard();
+    renderClientsList();
+    renderTimeline();
+  }
+}
+
+function openScheduleEventModal() {
+  closeContextMenu();
+
+  let modal = $('scheduleEventModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'scheduleEventModal';
+    modal.style.position = 'fixed';
+    modal.style.top = '0';
+    modal.style.left = '0';
+    modal.style.width = '100vw';
+    modal.style.height = '100vh';
+    modal.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+    modal.style.backdropFilter = 'blur(10px)';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.zIndex = '10000';
+    modal.onclick = (e) => {
+      if (e.target === modal) modal.style.display = 'none';
+    };
+    document.body.appendChild(modal);
+  }
+
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  modal.innerHTML = `
+    <div class="glass-panel" style="width: 400px; padding: 25px; border-radius: 24px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(20px); box-shadow: 0 20px 40px rgba(0,0,0,0.5); position: relative; animation: modalAppear 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);">
+      <button onclick="document.getElementById('scheduleEventModal').style.display='none'" style="position: absolute; top: 15px; right: 15px; background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 5px;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 18px; height: 18px;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin-bottom: 20px; text-align: center;">Agendar Compromisso</h3>
+      
+      <form id="scheduleEventForm" onsubmit="saveScheduledEvent(event)" style="display: flex; flex-direction: column; gap: 14px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary);">Título</label>
+          <input type="text" id="eventTitle" required placeholder="Ex: Reunião de Alinhamento" style="width: 100%; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: var(--text-primary); font-family: inherit; font-size: 0.9rem;" />
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary);">Data</label>
+            <input type="date" id="eventDate" required min="${todayStr}" style="width: 100%; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: var(--text-primary); font-family: inherit; font-size: 0.9rem;" />
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary);">Hora</label>
+            <input type="time" id="eventTime" required style="width: 100%; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: var(--text-primary); font-family: inherit; font-size: 0.9rem;" />
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary);">Tipo de Compromisso</label>
+          <select id="eventType" style="width: 100%; padding: 10px 12px; border-radius: 10px; background: rgba(15,23,42,0.9); border: 1px solid rgba(255,255,255,0.06); color: var(--text-primary); font-family: inherit; font-size: 0.9rem; cursor: pointer;">
+            <option value="reuniao" style="background: #1e1b4b; color: #fff;">Reunião (Amarelo)</option>
+            <option value="entrega" style="background: #064e3b; color: #fff;">Entrega de Projeto (Verde)</option>
+            <option value="manutencao" style="background: #4c0519; color: #fff;">Manutenção (Vermelho)</option>
+          </select>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label style="font-size: 0.8rem; font-weight: 700; color: var(--text-secondary);">Descrição</label>
+          <textarea id="eventDescription" placeholder="Detalhes do agendamento..." rows="3" style="width: 100%; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: var(--text-primary); font-family: inherit; font-size: 0.9rem; resize: none;"></textarea>
+        </div>
+
+        <button type="submit" class="btn-primary" style="margin-top: 10px; padding: 12px; border-radius: 12px; font-weight: 700; font-family: 'Outfit', sans-serif;">
+          Salvar Agendamento
+        </button>
+      </form>
+    </div>
+  `;
+
+  modal.style.display = 'flex';
+}
+
+async function saveScheduledEvent(event) {
+  event.preventDefault();
+  
+  const title = $('eventTitle').value.trim();
+  const date = $('eventDate').value;
+  const time = $('eventTime').value;
+  const type = $('eventType').value;
+  const description = $('eventDescription').value.trim();
+
+  if (!title || !date || !time) {
+    showToast('Por favor, preencha todos os campos obrigatórios.', 'warning');
+    return;
+  }
+
+  const newEvent = {
+    id: 'evt_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+    title,
+    date,
+    time,
+    type,
+    description,
+    createdAt: Date.now()
+  };
+
+  calendarEvents.push(newEvent);
+  await saveAndSyncCalendarEvents();
+
+  showToast('Compromisso agendado com sucesso!', 'success');
+  $('scheduleEventModal').style.display = 'none';
+}
+
+async function saveAndSyncCalendarEvents() {
+  const companyId = activeUser ? (activeUser.companyId || 'local') : 'local';
+  localStorage.setItem(getUserKey('crm_calendar_events'), JSON.stringify(calendarEvents));
+  
+  if (SupabaseSyncEngine.active && activeUser) {
+    await SupabaseSyncEngine.pushRecord('scratchpad', {
+      id: `calendar_events_${companyId}`,
+      user_email: `company_${companyId}`,
+      content: JSON.stringify(calendarEvents)
+    });
+  }
+  
+  if (activeCalendarSubView === 'calendar') {
+    renderCalendarGrid();
+  }
+}
+
+// ==========================================================================
+// 25. Premium Interactive HIG Calendar Logic (Agenda Tab)
+// ==========================================================================
+
+function switchAgendaSubView(view) {
+  activeCalendarSubView = view;
+  
+  const timelineBtn = $('btnShowTimeline');
+  const calendarBtn = $('btnShowCalendar');
+  const timelineContainer = $('timelineContainer');
+  const calendarSubView = $('calendarSubView');
+  
+  if (view === 'timeline') {
+    if (timelineBtn) timelineBtn.classList.add('active');
+    if (calendarBtn) calendarBtn.classList.remove('active');
+    if (timelineContainer) timelineContainer.style.display = 'block';
+    if (calendarSubView) calendarSubView.style.display = 'none';
+    if ($('agendaViewTitle')) $('agendaViewTitle').innerText = 'Linha do Tempo de Contatos';
+    renderTimeline();
+  } else {
+    if (timelineBtn) timelineBtn.classList.remove('active');
+    if (calendarBtn) calendarBtn.classList.add('active');
+    if (timelineContainer) timelineContainer.style.display = 'none';
+    if (calendarSubView) calendarSubView.style.display = 'block';
+    if ($('agendaViewTitle')) $('agendaViewTitle').innerText = 'Calendário de Compromissos';
+    renderCalendarGrid();
+  }
+}
+
+function navigateCalendarMonth(direction) {
+  currentCalendarDate.setMonth(currentCalendarDate.getMonth() + direction);
+  renderCalendarGrid();
+}
+
+function renderCalendarGrid() {
+  const grid = $('calendarDaysGrid');
+  const monthYearLabel = $('calendarMonthYear');
+  if (!grid || !monthYearLabel) return;
+
+  grid.innerHTML = '';
+  
+  const year = currentCalendarDate.getFullYear();
+  const month = currentCalendarDate.getMonth();
+  
+  const monthNames = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+  
+  monthYearLabel.innerText = `${monthNames[month]} ${year}`;
+
+  const firstDayIndex = new Date(year, month, 1).getDay();
+  const totalDays = new Date(year, month + 1, 0).getDate();
+  
+  // Previous month padding days
+  const prevMonthTotalDays = new Date(year, month, 0).getDate();
+  for (let i = firstDayIndex - 1; i >= 0; i--) {
+    const dayNum = prevMonthTotalDays - i;
+    const dayEl = document.createElement('div');
+    dayEl.className = 'calendar-day past-day';
+    dayEl.innerText = dayNum;
+    grid.appendChild(dayEl);
+  }
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  // Current month days
+  for (let day = 1; day <= totalDays; day++) {
+    const cellDate = new Date(year, month, day);
+    const isPast = cellDate < today;
+    const isToday = cellDate.getTime() === today.getTime();
+    
+    // Format YYYY-MM-DD
+    const yStr = year;
+    const mStr = String(month + 1).padStart(2, '0');
+    const dStr = String(day).padStart(2, '0');
+    const dateStr = `${yStr}-${mStr}-${dStr}`;
+    
+    const dayEvents = calendarEvents.filter(evt => evt.date === dateStr);
+    
+    const dayEl = document.createElement('div');
+    dayEl.className = 'calendar-day';
+    
+    if (isPast) {
+      dayEl.classList.add('past-day');
+    } else if (isToday) {
+      dayEl.classList.add('today');
+    }
+    
+    if (!isPast) {
+      dayEl.onclick = () => showDailyEventsModal(dateStr, dayEvents);
+    }
+    
+    // Event flags for borders
+    const hasReuniao = dayEvents.some(e => e.type === 'reuniao');
+    const hasEntrega = dayEvents.some(e => e.type === 'entrega');
+    const hasManutencao = dayEvents.some(e => e.type === 'manutencao');
+    
+    const eventCount = (hasReuniao ? 1 : 0) + (hasEntrega ? 1 : 0) + (hasManutencao ? 1 : 0);
+    
+    if (eventCount === 3) {
+      dayEl.classList.add('has-three-events');
+    } else if (eventCount === 2) {
+      if (hasReuniao && hasEntrega) {
+        dayEl.classList.add('has-reuniao-entrega');
+      } else if (hasReuniao && hasManutencao) {
+        dayEl.classList.add('has-reuniao-manutencao');
+      } else if (hasEntrega && hasManutencao) {
+        dayEl.classList.add('has-entrega-manutencao');
+      }
+    } else if (eventCount === 1) {
+      if (hasReuniao) dayEl.classList.add('has-reuniao');
+      if (hasEntrega) dayEl.classList.add('has-entrega');
+      if (hasManutencao) dayEl.classList.add('has-manutencao');
+    }
+    
+    // Day number HTML
+    let contentHtml = `<span>${day}</span>`;
+    
+    // Dot indicators at bottom
+    if (dayEvents.length > 0) {
+      contentHtml += '<div class="calendar-event-indicators">';
+      const uniqueTypes = Array.from(new Set(dayEvents.map(e => e.type)));
+      uniqueTypes.forEach(t => {
+        contentHtml += `<span class="calendar-indicator-dot ${t}"></span>`;
+      });
+      contentHtml += '</div>';
+    }
+    
+    dayEl.innerHTML = contentHtml;
+    grid.appendChild(dayEl);
+  }
+}
+
+function showDailyEventsModal(dateStr, dayEvents) {
+  let modal = $('dailyEventsModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'dailyEventsModal';
+    modal.style.position = 'fixed';
+    modal.style.top = '0';
+    modal.style.left = '0';
+    modal.style.width = '100vw';
+    modal.style.height = '100vh';
+    modal.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+    modal.style.backdropFilter = 'blur(10px)';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.zIndex = '10000';
+    modal.onclick = (e) => {
+      if (e.target === modal) modal.style.display = 'none';
+    };
+    document.body.appendChild(modal);
+  }
+
+  // Format date to local string
+  const [y, m, d] = dateStr.split('-');
+  const formattedDate = `${d}/${m}/${y}`;
+
+  let eventsHtml = '';
+  if (dayEvents.length === 0) {
+    eventsHtml = `
+      <div style="text-align: center; padding: 30px 10px; color: var(--text-secondary);">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 48px; height: 48px; margin: 0 auto 12px; opacity: 0.5;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+        </svg>
+        <p style="font-weight: 600; font-size: 0.95rem;">Nenhum compromisso agendado</p>
+        <p style="font-size: 0.8rem; margin-top: 4px; opacity: 0.8;">Aproveite o dia livre ou adicione uma nova tarefa.</p>
+      </div>
+    `;
+  } else {
+    // Sort by time
+    const sortedEvents = [...dayEvents].sort((a, b) => a.time.localeCompare(b.time));
+    sortedEvents.forEach(evt => {
+      let badgeColor = '';
+      let badgeText = '';
+      if (evt.type === 'reuniao') {
+        badgeColor = '#f59e0b';
+        badgeText = 'Reunião';
+      } else if (evt.type === 'entrega') {
+        badgeColor = '#10b981';
+        badgeText = 'Entrega';
+      } else {
+        badgeColor = '#ef4444';
+        badgeText = 'Manutenção';
+      }
+
+      eventsHtml += `
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 15px; margin-bottom: 12px; position: relative;">
+          <button onclick="deleteScheduledEvent('${evt.id}', '${dateStr}')" style="position: absolute; top: 12px; right: 12px; background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px; opacity: 0.7; transition: opacity 0.2s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 16px; height: 16px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+            </svg>
+          </button>
+          
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <span style="font-size: 0.75rem; font-weight: 700; color: ${badgeColor}; padding: 2px 8px; border-radius: 20px; background: ${badgeColor}15; border: 1px solid ${badgeColor}30; text-transform: uppercase;">${badgeText}</span>
+            <span style="font-size: 0.85rem; font-weight: 700; color: var(--text-primary);">${evt.time}</span>
+          </div>
+
+          <h4 style="font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">${evt.title}</h4>
+          ${evt.description ? `<p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.4; word-break: break-word;">${evt.description}</p>` : ''}
+        </div>
+      `;
+    });
+  }
+
+  modal.innerHTML = `
+    <div class="glass-panel" style="width: 380px; padding: 25px; border-radius: 24px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); backdrop-filter: blur(20px); box-shadow: 0 20px 40px rgba(0,0,0,0.5); position: relative; animation: modalAppear 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); max-height: 80vh; display: flex; flex-direction: column;">
+      <button onclick="document.getElementById('dailyEventsModal').style.display='none'" style="position: absolute; top: 15px; right: 15px; background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 5px; z-index: 10;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 18px; height: 18px;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      <h3 style="font-family: 'Outfit', sans-serif; font-size: 1.2rem; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; text-align: center;">Compromissos</h3>
+      <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 20px; text-align: center; font-weight: 600;">Dia ${formattedDate}</p>
+
+      <div style="flex: 1; overflow-y: auto; padding-right: 4px;" class="custom-scrollbar">
+        ${eventsHtml}
+      </div>
+
+      <div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 15px;">
+        <button onclick="closeDailyEventsAndOpenSchedule('${dateStr}')" class="btn-primary" style="width: 100%; padding: 12px; border-radius: 12px; font-weight: 700; font-family: 'Outfit', sans-serif;">
+          + Novo Compromisso
+        </button>
+      </div>
+    </div>
+  `;
+
+  modal.style.display = 'flex';
+}
+
+function closeDailyEventsAndOpenSchedule(dateStr) {
+  const modal = $('dailyEventsModal');
+  if (modal) modal.style.display = 'none';
+  
+  openScheduleEventModal();
+  if ($('eventDate')) {
+    $('eventDate').value = dateStr;
+  }
+}
+
+async function deleteScheduledEvent(eventId, dateStr) {
+  if (confirm('Deseja realmente excluir este compromisso?')) {
+    calendarEvents = calendarEvents.filter(evt => evt.id !== eventId);
+    await saveAndSyncCalendarEvents();
+    showToast('Compromisso removido.', 'info');
+    
+    // Refresh modal or close if empty
+    const remaining = calendarEvents.filter(evt => evt.date === dateStr);
+    if (remaining.length > 0) {
+      showDailyEventsModal(dateStr, remaining);
+    } else {
+      const modal = $('dailyEventsModal');
+      if (modal) modal.style.display = 'none';
+    }
+  }
+}
+
+// ==========================================================================
+// 26. Active Deadline & Event Alarms Engine
+// ==========================================================================
+
+function scanAllDeadlinesAndEvents() {
+  if (!activeUser) return;
+  const now = new Date();
+  
+  // 1. Scan Calendar Events (Reunião)
+  calendarEvents.forEach(evt => {
+    if (evt.type !== 'reuniao') return;
+    
+    // Parse date & time of the event
+    const eventDateTime = new Date(`${evt.date}T${evt.time}`);
+    const diffMs = eventDateTime - now;
+    const diffMins = diffMs / 1000 / 60;
+    
+    // Alert 1 day before (1440 minutes)
+    if (diffMins > 0 && diffMins <= 1440) {
+      const alertKey = `cal_reuniao_24h_${evt.id}`;
+      if (!alertedMeetings.has(alertKey)) {
+        alertedMeetings.add(alertKey);
+        
+        const timeFormatted = `${evt.time} em ${evt.date.split('-').reverse().join('/')}`;
+        const text = `Reunião agendada amanhã: "${evt.title}" (${timeFormatted})! 📅`;
+        
+        showToast(text, 'warning');
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('Compromisso Próximo! ⏰', {
+            body: text,
+            icon: 'https://cdn-icons-png.flaticon.com/512/3652/3652191.png'
+          });
+        }
+      }
+    }
+  });
+
+  // 2. Scan Project Deadlines (dateNextContact)
+  clients.forEach(client => {
+    if (!client.dateNextContact) return;
+    
+    const deadlineDate = new Date(client.dateNextContact);
+    const diffMs = deadlineDate - now;
+    const diffMins = diffMs / 1000 / 60;
+    
+    if (diffMins <= 0) return; // Already passed
+    
+    // 7 Days Alarm (10080 mins)
+    if (diffMins <= 10080) {
+      const alertKey = `proj_7d_${client.id}_${client.dateNextContact}`;
+      if (!alertedMeetings.has(alertKey)) {
+        alertedMeetings.add(alertKey);
+        
+        const text = `Prazo crítico: Faltam 7 dias para a entrega do projeto "${client.projectName}" (${client.name})! 🚀`;
+        showToast(text, 'info');
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('Prazo em 7 dias! 📅', { body: text });
+        }
+      }
+    }
+    
+    // 1 Day Alarm (1440 mins)
+    if (diffMins <= 1440) {
+      const alertKey = `proj_1d_${client.id}_${client.dateNextContact}`;
+      if (!alertedMeetings.has(alertKey)) {
+        alertedMeetings.add(alertKey);
+        
+        const text = `Atenção: A entrega do projeto "${client.projectName}" (${client.name}) é amanhã! ⚠️`;
+        showToast(text, 'warning');
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('Prazo em 24 horas! 🚨', { body: text });
+        }
+      }
+    }
+    
+    // 1 Hour Alarm (60 mins)
+    if (diffMins <= 60) {
+      const alertKey = `proj_1h_${client.id}_${client.dateNextContact}`;
+      if (!alertedMeetings.has(alertKey)) {
+        alertedMeetings.add(alertKey);
+        
+        const text = `Urgente: Entrega do projeto "${client.projectName}" (${client.name}) em menos de 1 hora! ⏱️`;
+        showToast(text, 'error');
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('Prazo em 1 hora! 🔥', { body: text });
+        }
+      }
+    }
+  });
+}
