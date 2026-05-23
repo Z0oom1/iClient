@@ -2835,7 +2835,17 @@ async function fetchWithCORSBypass(targetUrl, options = {}) {
   const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   const proxies = [];
 
-  // 1. If local, prioritize corsproxy.io (high performance, free on local)
+  // 1. Same-Origin Vercel Serverless Function Proxy (highly reliable for production Vercel)
+  // Since it is same-origin, it has ZERO CORS issues, is extremely secure, and avoids 3rd-party limits!
+  // Note: Only attempted if NOT local, since static 'serve' doesn't execute API functions locally.
+  if (!isLocal) {
+    proxies.push({
+      name: 'Vercel Serverless Proxy',
+      url: (url) => `/api/cors?url=${encodeURIComponent(url)}`
+    });
+  }
+
+  // 2. If local, prioritize corsproxy.io (high performance, free on local)
   if (isLocal) {
     proxies.push({
       name: 'CORSproxy.io (Localhost)',
@@ -2843,19 +2853,13 @@ async function fetchWithCORSBypass(targetUrl, options = {}) {
     });
   }
 
-  // 2. CodeTabs (highly reliable, supports POST)
-  proxies.push({
-    name: 'CodeTabs Proxy',
-    url: (url) => `https://api.codetabs.com/v1/proxy?url=${encodeURIComponent(url)}`
-  });
-
-  // 3. Cors.lol (modern free CORS proxy)
+  // 3. Cors.lol (modern free CORS proxy, supports POST)
   proxies.push({
     name: 'Cors.lol Proxy',
     url: (url) => `https://cors.lol/?url=${encodeURIComponent(url)}`
   });
 
-  // 4. Thingproxy
+  // 4. Thingproxy (supports POST, free)
   proxies.push({
     name: 'Thingproxy',
     url: (url) => `https://thingproxy.freeboard.io/fetch/${url}`
@@ -2878,7 +2882,7 @@ async function fetchWithCORSBypass(targetUrl, options = {}) {
       
       const response = await fetch(proxiedUrl, options);
       
-      // Check for proxy level errors (like 403 billing/localhost restrictions or 429 rate limit)
+      // Check for proxy level errors (like 403 billing/localhost restrictions, 400 Bad Request, or 429 rate limit)
       if (!response.ok) {
         const tempRes = response.clone();
         let bodyText = '';
@@ -2888,6 +2892,10 @@ async function fetchWithCORSBypass(targetUrl, options = {}) {
         
         if (response.status === 403 && (bodyText.includes('pricing') || bodyText.includes('localhost') || bodyText.includes('Free usage'))) {
           console.warn(`[CORS Proxy] ${proxy.name} recusou a requisição (restrição de ambiente). Tentando próximo proxy...`);
+          continue;
+        }
+        if (response.status === 400 && (bodyText.includes('Bad request') || bodyText.includes('format') || bodyText.includes('codetabs'))) {
+          console.warn(`[CORS Proxy] ${proxy.name} retornou erro de formato. Tentando próximo proxy...`);
           continue;
         }
         if (response.status === 429) {
