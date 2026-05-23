@@ -2830,6 +2830,87 @@ function showCompanyPortal() {
 
 let devicePollTimer = null;
 
+// Robust Multi-Proxy Fallback Helper to bypass CORS in client-side environments (e.g. Vercel)
+async function fetchWithCORSBypass(targetUrl, options = {}) {
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const proxies = [];
+
+  // 1. If local, prioritize corsproxy.io (high performance, free on local)
+  if (isLocal) {
+    proxies.push({
+      name: 'CORSproxy.io (Localhost)',
+      url: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`
+    });
+  }
+
+  // 2. CodeTabs (highly reliable, supports POST)
+  proxies.push({
+    name: 'CodeTabs Proxy',
+    url: (url) => `https://api.codetabs.com/v1/proxy?url=${encodeURIComponent(url)}`
+  });
+
+  // 3. Cors.lol (modern free CORS proxy)
+  proxies.push({
+    name: 'Cors.lol Proxy',
+    url: (url) => `https://cors.lol/?url=${encodeURIComponent(url)}`
+  });
+
+  // 4. Thingproxy
+  proxies.push({
+    name: 'Thingproxy',
+    url: (url) => `https://thingproxy.freeboard.io/fetch/${url}`
+  });
+
+  // 5. CORSproxy.io as a desperate last resort on non-local
+  if (!isLocal) {
+    proxies.push({
+      name: 'CORSproxy.io (Production Fallback)',
+      url: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`
+    });
+  }
+
+  let lastError = null;
+
+  for (const proxy of proxies) {
+    const proxiedUrl = proxy.url(targetUrl);
+    try {
+      console.log(`[CORS Proxy] Tentando requisição via ${proxy.name}: ${proxiedUrl}`);
+      
+      const response = await fetch(proxiedUrl, options);
+      
+      // Check for proxy level errors (like 403 billing/localhost restrictions or 429 rate limit)
+      if (!response.ok) {
+        const tempRes = response.clone();
+        let bodyText = '';
+        try {
+          bodyText = await tempRes.text();
+        } catch (_) {}
+        
+        if (response.status === 403 && (bodyText.includes('pricing') || bodyText.includes('localhost') || bodyText.includes('Free usage'))) {
+          console.warn(`[CORS Proxy] ${proxy.name} recusou a requisição (restrição de ambiente). Tentando próximo proxy...`);
+          continue;
+        }
+        if (response.status === 429) {
+          console.warn(`[CORS Proxy] ${proxy.name} retornou limite de requisições (429). Tentando próximo proxy...`);
+          continue;
+        }
+        if (response.status >= 500) {
+          console.warn(`[CORS Proxy] ${proxy.name} retornou erro interno do servidor (${response.status}). Tentando próximo proxy...`);
+          continue;
+        }
+      }
+      
+      console.log(`[CORS Proxy] Sucesso ou resposta semântica obtida via ${proxy.name}.`);
+      return response;
+    } catch (err) {
+      console.warn(`[CORS Proxy] Erro de rede com ${proxy.name}: ${err.message}. Tentando próximo proxy...`);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error("Todos os proxies CORS falharam.");
+}
+
 async function handleSocialLogin(provider) {
   if (provider.toLowerCase() !== 'github') return;
   
@@ -2848,7 +2929,7 @@ async function handleSocialLogin(provider) {
   
   try {
     const targetUrl = `https://github.com/login/device/code?client_id=${clientId}&scope=read:user`;
-    const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`, {
+    const response = await fetchWithCORSBypass(targetUrl, {
       method: 'POST',
       headers: {
         'Accept': 'application/json'
@@ -2931,7 +3012,7 @@ function startDevicePolling(clientId, deviceCode, interval) {
   devicePollTimer = setInterval(async () => {
     try {
       const targetUrl = `https://github.com/login/oauth/access_token?client_id=${clientId}&device_code=${deviceCode}&grant_type=urn:ietf:params:oauth:grant-type:device_code`;
-      const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`, {
+      const response = await fetchWithCORSBypass(targetUrl, {
         method: 'POST',
         headers: {
           'Accept': 'application/json'
