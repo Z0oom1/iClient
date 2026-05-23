@@ -47,6 +47,34 @@ function getUserKey(key) {
   return key;
 }
 
+// Scoping Helper: scopes Supabase database records by company-wide ID for collaboration
+function getSyncEmail() {
+  if (activeUser && activeUser.companyId) {
+    return `company_${activeUser.companyId}`;
+  }
+  return activeUser ? activeUser.email : 'local';
+}
+
+function getSyncNotesId() {
+  if (activeUser && activeUser.companyId) {
+    return `single_notes_${activeUser.companyId}`;
+  }
+  return activeUser ? `single_notes_${activeUser.email}` : 'single_notes_local';
+}
+
+let cloudSyncTimer = null;
+
+function initCloudSyncInterval() {
+  if (cloudSyncTimer) clearInterval(cloudSyncTimer);
+  
+  if (SupabaseSyncEngine.active && activeUser) {
+    cloudSyncTimer = setInterval(() => {
+      console.log('[Cloud Sync] Sincronizando dados compartilhados da empresa em segundo plano...');
+      SupabaseSyncEngine.pullAll();
+    }, 15000); // Sincroniza a cada 15 segundos
+  }
+}
+
 // Scoping Helper: gets company/user initials
 function getInitials(text) {
   if (!text) return 'MC';
@@ -129,9 +157,9 @@ function loadScopedUserData() {
   }
 }
 
-function checkAuth() {
-  // Inicializa a lista de empresas e o seeding administrativo
-  initCompaniesAndUsersSeed();
+async function checkAuth() {
+  // Inicializa a lista de empresas e o seeding administrativo buscando da nuvem se ativo
+  await initCompaniesAndUsersSeed();
 
   const sessionStr = localStorage.getItem('crm_active_user');
   if (sessionStr) {
@@ -171,6 +199,9 @@ function checkAuth() {
 
     // Inicia o motor de presença online do time
     initPresenceEngine();
+    
+    // Inicializa a sincronização periódica em nuvem para tempo real
+    initCloudSyncInterval();
 
     removeLogoSelect(null);
 
@@ -188,6 +219,7 @@ function checkAuth() {
 
     // Para o motor de presença se deslogado
     if (presenceTimer) clearInterval(presenceTimer);
+    if (cloudSyncTimer) clearInterval(cloudSyncTimer);
     if ($('presenceIndicator')) $('presenceIndicator').style.display = 'none';
 
     // Reseta o wallpaper para o padrão ao deslogar
@@ -1757,9 +1789,8 @@ function saveScratchpad() {
   $('scratchpadSaveTime').innerText = `Última alteração: salvo às ${timeStr}`;
 
   // Cloud Sync PUSH hook with 1s debounce
-  if (scratchpadSyncTimeout) clearTimeout(scratchpadSyncTimeout);
   scratchpadSyncTimeout = setTimeout(() => {
-    SupabaseSyncEngine.pushRecord('scratchpad', { id: `single_notes_${activeUser.email}`, user_email: activeUser.email, content: text });
+    SupabaseSyncEngine.pushRecord('scratchpad', { id: getSyncNotesId(), user_email: getSyncEmail(), content: text });
   }, 1000);
 }
 
@@ -1869,7 +1900,7 @@ function wipeAllDatabaseData() {
 function mapClientToDb(c) {
   return {
     id: c.id,
-    user_email: activeUser ? activeUser.email : 'local',
+    user_email: getSyncEmail(),
     name: c.name,
     company: c.company || null,
     email: c.email || null,
@@ -1891,7 +1922,7 @@ function mapClientToDb(c) {
 function mapTodoToDb(t) {
   return {
     id: t.id,
-    user_email: activeUser ? activeUser.email : 'local',
+    user_email: getSyncEmail(),
     text: t.text,
     completed: t.completed
   };
@@ -1981,6 +2012,126 @@ const SupabaseSyncEngine = {
     }
   },
 
+  async pullCompanies() {
+    if (!this.active) {
+      this.init();
+    }
+    if (!this.active) return;
+    try {
+      const response = await fetch(`${this.url}/rest/v1/scratchpad?id=eq.global_companies&user_email=eq.system_global`, {
+        method: 'GET',
+        headers: this.getHeaders()
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.length > 0 && data[0].content) {
+          const cloudCompanies = JSON.parse(data[0].content);
+          if (Array.isArray(cloudCompanies) && cloudCompanies.length > 0) {
+            const localCompanies = JSON.parse(localStorage.getItem('crm_companies')) || [];
+            const companyMap = new Map();
+            localCompanies.forEach(c => companyMap.set(c.id, c));
+            cloudCompanies.forEach(c => companyMap.set(c.id, c));
+            
+            companies = Array.from(companyMap.values());
+            localStorage.setItem('crm_companies', JSON.stringify(companies));
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao sincronizar empresas da nuvem:', e);
+    }
+  },
+
+  async pushCompany(company) {
+    if (!this.active) {
+      this.init();
+    }
+    if (!this.active) return;
+    try {
+      const response = await fetch(`${this.url}/rest/v1/scratchpad?id=eq.global_companies&user_email=eq.system_global`, {
+        method: 'GET',
+        headers: this.getHeaders()
+      });
+      
+      let list = [];
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.length > 0 && data[0].content) {
+          list = JSON.parse(data[0].content);
+        }
+      }
+      
+      const idx = list.findIndex(c => c.id === company.id);
+      if (idx >= 0) {
+        list[idx] = company;
+      } else {
+        list.push(company);
+      }
+      
+      const record = {
+        id: 'global_companies',
+        user_email: 'system_global',
+        content: JSON.stringify(list)
+      };
+      
+      await fetch(`${this.url}/rest/v1/scratchpad`, {
+        method: 'POST',
+        headers: {
+          ...this.getHeaders(),
+          'Prefer': 'resolution=merge-duplicates'
+        },
+        body: JSON.stringify(record)
+      });
+    } catch (e) {
+      console.error('Erro ao salvar empresa na nuvem:', e);
+    }
+  },
+
+  async pullAllProfiles() {
+    if (!this.active) {
+      this.init();
+    }
+    if (!this.active) return;
+    try {
+      const response = await fetch(`${this.url}/rest/v1/profiles`, {
+        method: 'GET',
+        headers: this.getHeaders()
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.length > 0) {
+          const localUsers = JSON.parse(localStorage.getItem('crm_users')) || [];
+          
+          data.forEach(p => {
+            const exists = localUsers.some(u => u.email === p.email);
+            if (!exists) {
+              localUsers.push({
+                username: p.email.split('@')[0],
+                name: p.name,
+                email: p.email,
+                password: p.password,
+                companyId: p.company || 'crdevs',
+                logo: p.logo || '',
+                role: 'member'
+              });
+            } else {
+              const idx = localUsers.findIndex(u => u.email === p.email);
+              localUsers[idx].name = p.name;
+              localUsers[idx].password = p.password;
+              localUsers[idx].companyId = p.company || 'crdevs';
+              localUsers[idx].logo = p.logo || localUsers[idx].logo;
+            }
+          });
+          
+          localStorage.setItem('crm_users', JSON.stringify(localUsers));
+          console.log('Perfis sincronizados com a nuvem.');
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao sincronizar perfis:', e);
+    }
+  },
+
   init() {
     const isDisabled = localStorage.getItem(getUserKey('crm_supabase_disabled')) === 'true';
     
@@ -2044,7 +2195,7 @@ const SupabaseSyncEngine = {
     if (!this.active || !activeUser) return;
     try {
       // 1. Pull Clients scoped by user_email
-      const resClients = await fetch(`${this.url}/rest/v1/clients?user_email=eq.${activeUser.email}`, {
+      const resClients = await fetch(`${this.url}/rest/v1/clients?user_email=eq.${getSyncEmail()}`, {
         method: 'GET',
         headers: this.getHeaders()
       });
@@ -2077,7 +2228,7 @@ const SupabaseSyncEngine = {
       }
 
       // 2. Pull Todos scoped by user_email
-      const resTodos = await fetch(`${this.url}/rest/v1/todos?user_email=eq.${activeUser.email}`, {
+      const resTodos = await fetch(`${this.url}/rest/v1/todos?user_email=eq.${getSyncEmail()}`, {
         method: 'GET',
         headers: this.getHeaders()
       });
@@ -2114,7 +2265,7 @@ const SupabaseSyncEngine = {
       }
 
       // 3. Pull Scratchpad scoped by id
-      const resNotes = await fetch(`${this.url}/rest/v1/scratchpad?id=eq.single_notes_${activeUser.email}`, {
+      const resNotes = await fetch(`${this.url}/rest/v1/scratchpad?id=eq.${getSyncNotesId()}`, {
         method: 'GET',
         headers: this.getHeaders()
       });
@@ -2134,12 +2285,12 @@ const SupabaseSyncEngine = {
             }
           } else if (localNotes.trim() && !notesText.trim()) {
             // Local has notes but cloud is empty. Push local notes to cloud.
-            this.pushRecord('scratchpad', { id: `single_notes_${activeUser.email}`, user_email: activeUser.email, content: localNotes });
+            this.pushRecord('scratchpad', { id: getSyncNotesId(), user_email: getSyncEmail(), content: localNotes });
           }
         } else {
           // Cloud has no record for this user's scratchpad. Push local notes if they exist.
           if (localNotes.trim()) {
-            this.pushRecord('scratchpad', { id: `single_notes_${activeUser.email}`, user_email: activeUser.email, content: localNotes });
+            this.pushRecord('scratchpad', { id: getSyncNotesId(), user_email: getSyncEmail(), content: localNotes });
           }
         }
       }
@@ -2248,7 +2399,7 @@ async function pushAllLocalDataToCloud() {
   
   // Push scratchpad
   const notesText = localStorage.getItem(getUserKey('crm_scratchpad')) || "";
-  await SupabaseSyncEngine.pushRecord('scratchpad', { id: `single_notes_${activeUser.email}`, user_email: activeUser.email, content: notesText });
+  await SupabaseSyncEngine.pushRecord('scratchpad', { id: getSyncNotesId(), user_email: getSyncEmail(), content: notesText });
 }
 
 function disconnectSupabaseCloud() {
@@ -2730,7 +2881,17 @@ async function saveProfileInfo() {
 // 18. Multi-Tenant Corporate Portal & Seeding
 // ==========================================================================
 
-function initCompaniesAndUsersSeed() {
+async function initCompaniesAndUsersSeed() {
+  // Ensure Supabase connection is initialized so we can read from it
+  SupabaseSyncEngine.init();
+  
+  if (SupabaseSyncEngine.active) {
+    // 1. Pull companies list from Supabase scratchpad
+    await SupabaseSyncEngine.pullCompanies();
+    // 2. Pull all profiles from Supabase profiles table
+    await SupabaseSyncEngine.pullAllProfiles();
+  }
+
   // Load or initialize companies - CRdevs ONLY by default!
   const localCompanies = localStorage.getItem('crm_companies');
   if (!localCompanies || localCompanies.includes('"id":"google"')) {
@@ -2744,15 +2905,15 @@ function initCompaniesAndUsersSeed() {
 
   // Load or initialize users
   const localUsers = localStorage.getItem('crm_users');
-  let users = [];
+  let usersList = [];
   if (localUsers) {
-    users = JSON.parse(localUsers);
+    usersList = JSON.parse(localUsers);
   }
   
   // Ensure Z0oom1 admin exists in crm_users
-  const hasAdmin = users.some(u => u.username === 'Z0oom1' || u.email === 'caiodevs@gmail.com');
+  const hasAdmin = usersList.some(u => u.username === 'Z0oom1' || u.email === 'caiodevs@gmail.com');
   if (!hasAdmin) {
-    users.push({
+    usersList.push({
       username: 'Z0oom1',
       name: 'Caio Rodrigues',
       email: 'caiodevs@gmail.com',
@@ -2761,7 +2922,7 @@ function initCompaniesAndUsersSeed() {
       role: 'admin',
       logo: '' // Personal avatar
     });
-    localStorage.setItem('crm_users', JSON.stringify(users));
+    localStorage.setItem('crm_users', JSON.stringify(usersList));
   }
 }
 
@@ -3135,22 +3296,40 @@ function initPresenceEngine() {
   presenceTimer = setInterval(updatePresence, 3000);
 }
 
-function updatePresence() {
+async function updatePresence() {
   if (!activeUser || !activeUser.companyId) return;
 
   const compId = activeUser.companyId;
   const presenceKey = `crm_presence_${compId}`;
   
   let presenceList = [];
-  try {
-    presenceList = JSON.parse(localStorage.getItem(presenceKey)) || [];
-  } catch (e) {
-    presenceList = [];
+  if (SupabaseSyncEngine.active) {
+    try {
+      const response = await fetch(`${SupabaseSyncEngine.url}/rest/v1/scratchpad?id=eq.presence_${compId}&user_email=eq.system_presence`, {
+        method: 'GET',
+        headers: SupabaseSyncEngine.getHeaders()
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.length > 0 && data[0].content) {
+          presenceList = JSON.parse(data[0].content) || [];
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar presença da nuvem:', e);
+      try {
+        presenceList = JSON.parse(localStorage.getItem(presenceKey)) || [];
+      } catch (_) {}
+    }
+  } else {
+    try {
+      presenceList = JSON.parse(localStorage.getItem(presenceKey)) || [];
+    } catch (_) {}
   }
 
-  // Filter out stale users (inactive for more than 8 seconds)
+  // Filter out stale users (inactive for more than 10 seconds)
   const now = Date.now();
-  presenceList = presenceList.filter(u => (now - u.lastSeen) < 8000 && u.email !== activeUser.email);
+  presenceList = presenceList.filter(u => (now - u.lastSeen) < 10000 && u.email !== activeUser.email);
 
   // Add/update current user
   presenceList.push({
@@ -3178,6 +3357,27 @@ function updatePresence() {
 
   // Save list back
   localStorage.setItem(presenceKey, JSON.stringify(presenceList));
+
+  // Push list back to Supabase scratchpad
+  if (SupabaseSyncEngine.active) {
+    try {
+      const record = {
+        id: `presence_${compId}`,
+        user_email: 'system_presence',
+        content: JSON.stringify(presenceList)
+      };
+      await fetch(`${SupabaseSyncEngine.url}/rest/v1/scratchpad`, {
+        method: 'POST',
+        headers: {
+          ...SupabaseSyncEngine.getHeaders(),
+          'Prefer': 'resolution=merge-duplicates'
+        },
+        body: JSON.stringify(record)
+      });
+    } catch (e) {
+      console.warn('Erro ao salvar presença na nuvem:', e);
+    }
+  }
 
   // Render the presence indicator
   renderPresenceIndicator(presenceList);
@@ -3394,6 +3594,10 @@ function saveNewCompany() {
 
   companies.push(newComp);
   localStorage.setItem('crm_companies', JSON.stringify(companies));
+  
+  if (SupabaseSyncEngine.active) {
+    SupabaseSyncEngine.pushCompany(newComp);
+  }
   
   showToast(`Empresa "${name}" cadastrada com sucesso!`, 'success');
   
