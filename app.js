@@ -303,6 +303,7 @@ async function handleLogin() {
   const passwordInput = $('loginPassword').value;
   const loginCard = $('loginCard');
   const errorMsg = $('loginError');
+  let foundUser = null;
 
   if (!selectedCompanyId) {
     showToast('Selecione uma empresa primeiro!', 'warning');
@@ -342,22 +343,24 @@ async function handleLogin() {
     foundUser = admin;
   }
 
-  // Search in local database scoping by selected company
-  const users = JSON.parse(localStorage.getItem('crm_users')) || [];
-  let foundUser = users.find(u => 
-    u.companyId === selectedCompanyId && 
-    (u.email.toLowerCase() === loginInput || (u.username && u.username.toLowerCase() === loginInput)) && 
-    u.password === passwordInput
-  );
-
-  // If not found local, check Supabase
   if (!foundUser) {
-    showToast('Buscando conta corporativa...', 'info');
-    foundUser = await SupabaseSyncEngine.fetchProfile(loginInput, passwordInput);
-    if (foundUser) {
-      if (!foundUser.companyId) foundUser.companyId = selectedCompanyId;
-      users.push(foundUser);
-      localStorage.setItem('crm_users', JSON.stringify(users));
+    // Search in local database scoping by selected company
+    const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+    foundUser = users.find(u => 
+      u.companyId === selectedCompanyId && 
+      (u.email.toLowerCase() === loginInput || (u.username && u.username.toLowerCase() === loginInput)) && 
+      u.password === passwordInput
+    );
+
+    // If not found local, check Supabase
+    if (!foundUser) {
+      showToast('Buscando conta corporativa...', 'info');
+      foundUser = await SupabaseSyncEngine.fetchProfile(loginInput, passwordInput);
+      if (foundUser) {
+        if (!foundUser.companyId) foundUser.companyId = selectedCompanyId;
+        users.push(foundUser);
+        localStorage.setItem('crm_users', JSON.stringify(users));
+      }
     }
   }
 
@@ -2107,11 +2110,16 @@ const SupabaseSyncEngine = {
       if (response.ok) {
         const data = await response.json();
         if (data && data.length > 0 && data[0].content) {
-          const cloudCompanies = JSON.parse(data[0].content);
+          let cloudCompanies = JSON.parse(data[0].content);
           if (Array.isArray(cloudCompanies) && cloudCompanies.length > 0) {
+            // Filter out old legacy locked companies
+            cloudCompanies = cloudCompanies.filter(c => c.id !== 'crdevs' && c.id !== 'google');
+            
             const localCompanies = JSON.parse(localStorage.getItem('crm_companies')) || [];
             const companyMap = new Map();
-            localCompanies.forEach(c => companyMap.set(c.id, c));
+            localCompanies.forEach(c => {
+              if (c.id !== 'crdevs' && c.id !== 'google') companyMap.set(c.id, c);
+            });
             cloudCompanies.forEach(c => companyMap.set(c.id, c));
             
             companies = Array.from(companyMap.values());
@@ -2186,22 +2194,33 @@ const SupabaseSyncEngine = {
           
           data.forEach(p => {
             const exists = localUsers.some(u => u.email === p.email);
+            let targetCompany = p.company || 'crdev';
+            if (targetCompany === 'crdevs' || targetCompany === 'google') {
+              targetCompany = 'crdev';
+            }
+            let targetPassword = p.password;
+            if (p.email === 'caiodevs@gmail.com' && targetCompany === 'crdev') {
+              targetPassword = '@C4iovix2';
+            }
             if (!exists) {
               localUsers.push({
                 username: p.email.split('@')[0],
                 name: p.name,
                 email: p.email,
-                password: p.password,
-                companyId: p.company || 'crdev',
+                password: targetPassword,
+                companyId: targetCompany,
                 logo: p.logo || '',
-                role: 'member'
+                role: p.email === 'caiodevs@gmail.com' ? 'admin' : 'member'
               });
             } else {
               const idx = localUsers.findIndex(u => u.email === p.email);
               localUsers[idx].name = p.name;
-              localUsers[idx].password = p.password;
-              localUsers[idx].companyId = p.company || 'crdev';
+              localUsers[idx].password = targetPassword;
+              localUsers[idx].companyId = targetCompany;
               localUsers[idx].logo = p.logo || localUsers[idx].logo;
+              if (p.email === 'caiodevs@gmail.com') {
+                localUsers[idx].role = 'admin';
+              }
             }
           });
           
@@ -3050,35 +3069,50 @@ async function initCompaniesAndUsersSeed() {
 
   // Load or initialize companies - Crdev ONLY by default!
   const localCompanies = localStorage.getItem('crm_companies');
-  if (!localCompanies || localCompanies.includes('"id":"crdevs"') || localCompanies.includes('"id":"google"')) {
-    companies = [
-      { id: 'crdev', name: 'Crdev', logo: 'logo.png', isLocked: true }
-    ];
+  let parsedCompanies = [];
+  try {
+    parsedCompanies = JSON.parse(localCompanies) || [];
+  } catch (e) {}
+
+  const hasLegacy = parsedCompanies.some(c => c.id === 'crdevs' || c.id === 'google');
+  if (parsedCompanies.length === 0 || hasLegacy) {
+    // Filter out legacy and keep new custom companies
+    companies = parsedCompanies.filter(c => c.id !== 'crdevs' && c.id !== 'google');
+    // Ensure Crdev is in there
+    if (!companies.some(c => c.id === 'crdev')) {
+      companies.push({ id: 'crdev', name: 'Crdev', logo: 'logo.png', isLocked: true });
+    }
     localStorage.setItem('crm_companies', JSON.stringify(companies));
     
-    // Reset all users list to contain ONLY Crdev admin user
-    const adminUser = {
-      username: 'Z0oom1',
-      name: 'Caio Rodrigues',
-      email: 'caiodevs@gmail.com',
-      password: '@C4iovix2',
-      companyId: 'crdev',
-      role: 'admin',
-      logo: '' // Personal avatar
-    };
-    localStorage.setItem('crm_users', JSON.stringify([adminUser]));
+    // Clean old users to filter out crdevs/google users but keep other custom companies users
+    let usersList = JSON.parse(localStorage.getItem('crm_users')) || [];
+    usersList = usersList.filter(u => u.companyId !== 'crdevs' && u.companyId !== 'google');
     
-    // Clear old active user if company isn't crdev
+    // Ensure admin user exists for crdev
+    if (!usersList.some(u => u.username === 'Z0oom1' && u.companyId === 'crdev')) {
+      usersList.push({
+        username: 'Z0oom1',
+        name: 'Caio Rodrigues',
+        email: 'caiodevs@gmail.com',
+        password: '@C4iovix2',
+        companyId: 'crdev',
+        role: 'admin',
+        logo: '' // Personal avatar
+      });
+    }
+    localStorage.setItem('crm_users', JSON.stringify(usersList));
+
+    // Clear active user session if it was logged to a legacy company
     const activeUserStr = localStorage.getItem('crm_active_user');
     if (activeUserStr) {
       const parsed = JSON.parse(activeUserStr);
-      if (parsed.companyId !== 'crdev') {
+      if (parsed.companyId === 'crdevs' || parsed.companyId === 'google') {
         localStorage.removeItem('crm_active_user');
         activeUser = null;
       }
     }
   } else {
-    companies = JSON.parse(localCompanies);
+    companies = parsedCompanies;
   }
 
   // Load users list
@@ -3087,7 +3121,7 @@ async function initCompaniesAndUsersSeed() {
   // Ensure Z0oom1 admin exists in crm_users under crdev
   const hasAdmin = usersList.some(u => u.username === 'Z0oom1' && u.companyId === 'crdev');
   if (!hasAdmin) {
-    usersList = [{
+    usersList.push({
       username: 'Z0oom1',
       name: 'Caio Rodrigues',
       email: 'caiodevs@gmail.com',
@@ -3095,7 +3129,7 @@ async function initCompaniesAndUsersSeed() {
       companyId: 'crdev',
       role: 'admin',
       logo: '' // Personal avatar
-    }];
+    });
     localStorage.setItem('crm_users', JSON.stringify(usersList));
   }
 
@@ -3105,7 +3139,7 @@ async function initCompaniesAndUsersSeed() {
     if (crdevComp) {
       await SupabaseSyncEngine.pushCompany(crdevComp);
     }
-    const adminUser = usersList.find(u => u.username === 'Z0oom1');
+    const adminUser = usersList.find(u => u.username === 'Z0oom1' && u.companyId === 'crdev');
     if (adminUser) {
       await SupabaseSyncEngine.pushProfile(adminUser);
     }
