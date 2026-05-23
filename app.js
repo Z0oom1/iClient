@@ -93,6 +93,9 @@ function loadScopedUserData() {
   if ($('githubTokenInput')) {
     $('githubTokenInput').value = githubToken;
   }
+  if ($('githubClientIdInput')) {
+    $('githubClientIdInput').value = localStorage.getItem('crm_github_client_id') || "";
+  }
   
   // Load Notes Scratchpad
   if ($('notesScratchpad')) {
@@ -2728,14 +2731,11 @@ async function saveProfileInfo() {
 // ==========================================================================
 
 function initCompaniesAndUsersSeed() {
-  // Load or initialize companies
+  // Load or initialize companies - CRdevs ONLY by default!
   const localCompanies = localStorage.getItem('crm_companies');
-  if (!localCompanies) {
+  if (!localCompanies || localCompanies.includes('"id":"google"')) {
     companies = [
-      { id: 'crdevs', name: 'CRdevs', logo: 'logo.png', isLocked: true },
-      { id: 'google', name: 'Google', logo: 'https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg', isLocked: false },
-      { id: 'apple', name: 'Apple', logo: 'https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg', isLocked: false },
-      { id: 'github', name: 'GitHub', logo: 'https://upload.wikimedia.org/wikipedia/commons/9/91/Octicons-mark-github.svg', isLocked: false }
+      { id: 'crdevs', name: 'CRdevs', logo: 'logo.png', isLocked: true }
     ];
     localStorage.setItem('crm_companies', JSON.stringify(companies));
   } else {
@@ -2803,11 +2803,15 @@ function selectCompanyPortal(companyId) {
   $('loginLogoImg').src = comp.logo;
   $('loginCompanyName').innerText = comp.name;
   
-  // Hide standard links if CRdevs to enforce locks
+  // Hide standard links and GitHub SSO button if CRdevs to enforce locks
   if (companyId === 'crdevs') {
     $('authLinksContainer').style.display = 'none';
+    $('socialLoginSeparator').style.display = 'none';
+    $('socialLoginGrid').style.display = 'none';
   } else {
     $('authLinksContainer').style.display = 'block';
+    $('socialLoginSeparator').style.display = 'block';
+    $('socialLoginGrid').style.display = 'flex';
   }
   
   showLoginView();
@@ -2821,60 +2825,219 @@ function showCompanyPortal() {
 }
 
 // ==========================================================================
-// 19. Simulated Social SSO Authentication
+// 19. Real GitHub Device Authorization Flow (OAuth)
 // ==========================================================================
 
-function handleSocialLogin(provider) {
+let devicePollTimer = null;
+
+async function handleSocialLogin(provider) {
+  if (provider.toLowerCase() !== 'github') return;
+  
   if (!selectedCompanyId) {
     showToast('Selecione uma empresa primeiro!', 'warning');
     return;
   }
-  
-  const providerNames = {
-    google: { name: 'Google User', email: `google_${Date.now()}@gmail.com`, avatar: 'https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg' },
-    github: { name: 'GitHub Developer', email: `github_${Date.now()}@github.com`, avatar: 'https://upload.wikimedia.org/wikipedia/commons/9/91/Octicons-mark-github.svg' },
-    apple: { name: 'Apple Customer', email: `apple_${Date.now()}@icloud.com`, avatar: 'https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg' }
-  };
 
-  const pData = providerNames[provider.toLowerCase()] || providerNames.google;
+  const clientId = localStorage.getItem('crm_github_client_id') || "";
+  if (!clientId) {
+    showToast('Por favor, configure o GitHub Client ID em Ajustes para ativar o login real!', 'warning');
+    return;
+  }
   
-  showToast(`Autenticando via ${provider.toUpperCase()}...`, 'info');
+  showToast('Iniciando pareamento com o GitHub...', 'info');
   
-  setTimeout(() => {
-    const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+  try {
+    const response = await fetch('https://github.com/login/device/code', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        client_id: clientId,
+        scope: 'read:user'
+      })
+    });
     
-    // Check if user already exists
-    let foundUser = users.find(u => u.email === pData.email && u.companyId === selectedCompanyId);
-    if (!foundUser) {
-      foundUser = {
-        username: provider + '_' + Math.floor(1000 + Math.random() * 9000),
-        name: pData.name,
-        email: pData.email,
-        password: 'social-sso-bypass',
-        companyId: selectedCompanyId,
-        logo: pData.avatar, // Personal avatar
-        role: 'member'
-      };
-      users.push(foundUser);
-      localStorage.setItem('crm_users', JSON.stringify(users));
-      
-      // Sync with Supabase Cloud
-      SupabaseSyncEngine.pushProfile(foundUser);
+    if (!response.ok) {
+      throw new Error('Erro ao conectar à API do GitHub');
     }
     
-    activeUser = foundUser;
-    localStorage.setItem('crm_active_user', JSON.stringify(activeUser));
-    loadScopedUserData();
+    const data = await response.json();
+    if (data.user_code) {
+      openGitHubDeviceModal(data.user_code, data.verification_uri);
+      startDevicePolling(clientId, data.device_code, data.interval || 5);
+    } else {
+      showToast('Falha no pareamento. Verifique se o Client ID é válido e possui Device Flow ativo.', 'error');
+    }
+  } catch (e) {
+    console.error(e);
+    showToast('Erro de conexão ao iniciar login social do GitHub.', 'error');
+  }
+}
+
+function openGitHubDeviceModal(userCode, verificationUri) {
+  const oldModal = $('gitDeviceModal');
+  if (oldModal) oldModal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'gitDeviceModal';
+  modal.className = 'modal-overlay';
+  modal.style.cssText = 'display: flex; z-index: 10002;';
+  
+  modal.innerHTML = `
+    <div class="modal-sheet" style="max-width: 420px; text-align: center; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 24px; padding: 24px;">
+      <div class="modal-header" style="border: none; padding: 0; justify-content: center; margin-bottom: 16px;">
+        <h3 class="modal-title" style="font-family: 'Outfit', sans-serif; font-size: 1.3rem;">Autorização GitHub</h3>
+      </div>
+      <div class="modal-body" style="padding: 0;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24" style="width: 48px; height: 48px; margin: 0 auto 16px; color: var(--text-primary);">
+          <path fill-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.579.688.481C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" clip-rule="evenodd" />
+        </svg>
+        <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 16px;">
+          Para validar sua identidade, acesse o link oficial do GitHub em qualquer dispositivo:
+        </p>
+        <a href="${verificationUri}" target="_blank" style="color: var(--primary); font-weight: bold; font-size: 1.1rem; text-decoration: none; display: block; margin-bottom: 20px; transition: color 0.2s;">
+          ${verificationUri.replace('https://', '')}
+        </a>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
+          E insira o código de pareamento abaixo:
+        </p>
+        <div style="background: rgba(255,255,255,0.03); border: 1.5px dashed var(--glass-border); padding: 14px 20px; font-size: 1.8rem; font-weight: 800; letter-spacing: 0.1em; border-radius: 12px; color: var(--warning); margin-bottom: 24px; box-shadow: inset 0 2px 8px rgba(0,0,0,0.2);">
+          ${userCode}
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: 8px;">
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: var(--primary); animation: ping 1.2s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+          Aguardando aprovação no site do GitHub...
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 0; margin-top: 24px; border: none;">
+        <button class="btn-secondary" style="width: 100%; padding: 10px; font-size: 0.9rem; border-radius: 12px;" onclick="cancelDeviceFlow()">Cancelar Operação</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function cancelDeviceFlow() {
+  if (devicePollTimer) clearInterval(devicePollTimer);
+  const modal = $('gitDeviceModal');
+  if (modal) modal.remove();
+  showToast('Fluxo de login cancelado.', 'info');
+}
+
+function startDevicePolling(clientId, deviceCode, interval) {
+  if (devicePollTimer) clearInterval(devicePollTimer);
+  
+  let currentInterval = interval * 1000;
+  
+  devicePollTimer = setInterval(async () => {
+    try {
+      const response = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          client_id: clientId,
+          device_code: deviceCode,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+        })
+      });
+      
+      const tokenData = await response.json();
+      
+      if (tokenData.access_token) {
+        clearInterval(devicePollTimer);
+        const modal = $('gitDeviceModal');
+        if (modal) modal.remove();
+        
+        // Save Token scoped to current company session and globally for api integrations
+        localStorage.setItem(getUserKey('crm_github_token'), tokenData.access_token);
+        githubToken = tokenData.access_token;
+        if ($('githubTokenInput')) $('githubTokenInput').value = tokenData.access_token;
+        
+        showToast('Dispositivo autorizado pelo GitHub! Buscando dados...', 'info');
+        await fetchGitHubUserProfile(tokenData.access_token);
+      } else if (tokenData.error) {
+        if (tokenData.error === 'authorization_pending') {
+          // Keep polling
+        } else if (tokenData.error === 'slow_down') {
+          clearInterval(devicePollTimer);
+          startDevicePolling(clientId, deviceCode, (tokenData.interval || 5) + 5);
+        } else {
+          clearInterval(devicePollTimer);
+          const modal = $('gitDeviceModal');
+          if (modal) modal.remove();
+          showToast(`Erro na autenticação: ${tokenData.error}`, 'error');
+        }
+      }
+    } catch (e) {
+      console.error('Erro de polling:', e);
+    }
+  }, currentInterval);
+}
+
+async function fetchGitHubUserProfile(accessToken) {
+  try {
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
     
-    showToast(`Conectado com sucesso via ${provider.toUpperCase()}! 🚀`, 'success');
-    
-    $('loginOverlay').style.opacity = 0;
-    setTimeout(() => {
-      checkAuth();
-      $('loginOverlay').style.opacity = 1;
-    }, 400);
-    
-  }, 1000);
+    if (userRes.ok) {
+      const profile = await userRes.json();
+      
+      const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+      let foundUser = users.find(u => u.email === profile.email && u.companyId === selectedCompanyId);
+      
+      if (!foundUser) {
+        foundUser = {
+          username: profile.login,
+          name: profile.name || profile.login,
+          email: profile.email || `${profile.login}@github.com`,
+          password: 'github-oauth-authorized',
+          companyId: selectedCompanyId,
+          logo: profile.avatar_url, // Personal avatar url from git
+          role: 'member'
+        };
+        users.push(foundUser);
+        localStorage.setItem('crm_users', JSON.stringify(users));
+        
+        // Sync with Supabase Cloud
+        SupabaseSyncEngine.pushProfile(foundUser);
+      }
+      
+      activeUser = foundUser;
+      localStorage.setItem('crm_active_user', JSON.stringify(activeUser));
+      loadScopedUserData();
+      
+      showToast(`Olá, ${activeUser.name}! Autenticado com sucesso! 🚀`, 'success');
+      
+      $('loginOverlay').style.opacity = 0;
+      setTimeout(() => {
+        checkAuth();
+        $('loginOverlay').style.opacity = 1;
+      }, 400);
+    }
+  } catch (e) {
+    console.error(e);
+    showToast('Falha ao obter perfil do GitHub.', 'error');
+  }
+}
+
+function saveGithubSettings() {
+  const tokenVal = $('githubTokenInput').value.trim();
+  const clientIdVal = $('githubClientIdInput').value.trim();
+
+  localStorage.setItem(getUserKey('crm_github_token'), tokenVal);
+  localStorage.setItem('crm_github_client_id', clientIdVal); // Global OAuth Client ID
+  
+  githubToken = tokenVal;
+
+  showToast('Configurações do GitHub salvas com sucesso!', 'success');
 }
 
 // ==========================================================================

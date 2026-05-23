@@ -103,7 +103,9 @@ button, input, select, textarea {
   position: relative;
   display: flex;
   flex-direction: column;
-  padding-bottom: calc(var(--tabbar-height) + 20px);
+  padding-top: 100px;
+  padding-bottom: calc(var(--tabbar-height) + 40px);
+  box-sizing: border-box;
 }
 
 /* Main View Controller */
@@ -286,17 +288,22 @@ button, input, select, textarea {
    4. Header & App Shell
    ========================================================================== */
 .app-header {
-  padding: 24px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 80px;
+  box-sizing: border-box;
+  padding: 0 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(15, 23, 42, 0.3);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(40px) saturate(210%);
+  -webkit-backdrop-filter: blur(40px) saturate(210%);
   border-bottom: 1px solid var(--glass-border);
-  position: sticky;
-  top: 0;
   z-index: 100;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
 }
 
 .header-profile {
@@ -412,26 +419,24 @@ button, input, select, textarea {
    ========================================================================== */
 .tabbar {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  max-width: none;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 40px);
+  max-width: 600px;
   height: var(--tabbar-height);
   background: rgba(15, 23, 42, 0.45);
   backdrop-filter: blur(40px) saturate(210%);
   -webkit-backdrop-filter: blur(40px) saturate(210%);
-  border-top: 1px solid var(--glass-border);
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  border-radius: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
   display: flex;
   justify-content: space-around;
   align-items: center;
   padding: 0 16px;
-  box-shadow: 0 -5px 30px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   z-index: 99;
-  transform: none;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 /* --- Presence Indicators (Header) --- */
