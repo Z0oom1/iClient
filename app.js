@@ -1001,34 +1001,34 @@ function renderClientsList() {
         </div>
       `;
     }
-
-    // Deploy Link Button
+ 
+    // Deploy Link Button (compact icon-only)
     let deployBtnHtml = '';
     if (client.projectDeploy) {
       deployBtnHtml = `
-        <a href="${client.projectDeploy}" target="_blank" class="btn-secondary icon-only" title="Acessar Deploy" style="color: var(--success);">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <a href="${client.projectDeploy}" target="_blank" class="btn-secondary icon-only" title="Acessar Deploy" style="color: var(--success); width: 34px; height: 34px; min-height: 34px; padding: 0; display: flex; align-items: center; justify-content: center;">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 16px; height: 16px;">
             <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
           </svg>
         </a>
       `;
     }
-
-    // WhatsApp Button
+ 
+    // WhatsApp Button (compact icon-only)
     let waBtnHtml = '';
     if (client.phone) {
       waBtnHtml = `
-        <button class="btn-whatsapp-icon" onclick="contactClientWhatsApp('${client.id}')" title="Falar no WhatsApp">
-          <svg viewBox="0 0 24 24" fill="currentColor">
+        <button class="btn-whatsapp-icon" onclick="contactClientWhatsApp('${client.id}')" title="Falar no WhatsApp" style="width: 34px; height: 34px; min-height: 34px; padding: 0;">
+          <svg viewBox="0 0 24 24" fill="currentColor" style="width: 16px; height: 16px;">
             <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.455L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.825 1.451 5.436 0 9.858-4.42 9.86-9.86.001-2.636-1.026-5.112-2.893-6.98C16.573 1.897 14.1 .869 11.468.868 6.03.868 1.61 5.289 1.608 10.729c-.001 1.718.453 3.393 1.31 4.887l-1.012 3.693 3.791-.994c1.478.807 3.12 1.239 4.743 1.239-.001 0-.001 0 0 0zm10.967-7.493c-.3-.15-1.77-.874-2.043-.974-.275-.102-.475-.152-.674.152-.2.302-.776.974-.95 1.176-.176.202-.351.226-.651.077-.3-.15-1.267-.467-2.414-1.492-.893-.797-1.495-1.782-1.67-2.083-.176-.3-.019-.462.13-.61.135-.133.301-.352.451-.527.15-.176.2-.3.3-.5.101-.2.05-.376-.025-.526-.076-.15-.675-1.627-.925-2.227-.244-.588-.492-.507-.675-.516-.174-.008-.375-.01-.576-.01-.2 0-.525.075-.8.376-.275.301-1.05 1.027-1.05 2.507 0 1.481 1.075 2.913 1.225 3.113.15.2 2.113 3.227 5.113 4.527.714.31 1.272.495 1.707.634.717.228 1.37.195 1.887.118.577-.087 1.77-.724 2.02-.142.25-.376.25-.699.175-.774-.075-.075-.275-.15-.575-.3z"/>
           </svg>
         </button>
       `;
     }
-
+ 
     // Determine status badge color
     const badgeStatusColor = client.projectStatus.toLowerCase().split(' ')[0];
-
+ 
     card.innerHTML = `
       <div class="card-top">
         <div class="client-brand">
@@ -1038,37 +1038,68 @@ function renderClientsList() {
             <p>${client.company || 'Autônomo / Direto'}</p>
           </div>
         </div>
-        <span class="status-badge ${badgeStatusColor}">${client.projectStatus}</span>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+          <span class="status-badge ${badgeStatusColor}">${client.projectStatus}</span>
+          <div style="display: flex; gap: 6px;">
+            ${deployBtnHtml}
+            ${waBtnHtml}
+          </div>
+        </div>
       </div>
-
-      <div class="project-details-block">
+ 
+      <div class="project-details-block" style="margin-bottom: 0;">
         <div class="project-name-line">
           <span class="project-label">${client.projectName}</span>
           <span class="category-tag">${client.projectType}</span>
         </div>
         
-        <div class="project-finance-line">
+        <div class="project-finance-line" style="margin-bottom: 12px;">
           <div class="finance-item">Valor: <span>${costText}</span></div>
           <div class="finance-item">Horas: <span>${hoursText}</span></div>
         </div>
       </div>
-
+ 
       ${gitBadgeHtml}
-
-      <div class="card-actions">
-        <button class="btn-secondary" onclick="viewClientDetails('${client.id}')">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-          Detalhes
-        </button>
-        <button class="btn-secondary" onclick="openEditClientModal('${client.id}')">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>
-          Editar
-        </button>
-        ${deployBtnHtml}
-        ${waBtnHtml}
-      </div>
     `;
 
+    // Evento de clique esquerdo (Abre detalhes completo)
+    card.addEventListener('click', (e) => {
+      // Evita disparar se clicou nas ações de deploy ou WhatsApp
+      if (e.target.closest('a') || e.target.closest('button') || e.target.closest('.btn-whatsapp-icon')) {
+        return;
+      }
+      viewClientDetails(client.id);
+    });
+
+    // Evento de clique direito (Context Menu)
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showContextMenu(client.id, e.clientX, e.clientY);
+    });
+
+    // Toque longo para dispositivos móveis (Long Press de 500ms)
+    let touchTimer;
+    card.addEventListener('touchstart', (e) => {
+      if (e.target.closest('a') || e.target.closest('button') || e.target.closest('.btn-whatsapp-icon')) {
+        return;
+      }
+      touchTimer = setTimeout(() => {
+        if (navigator.vibrate) {
+          navigator.vibrate(40);
+        }
+        const touch = e.touches[0];
+        showContextMenu(client.id, touch.clientX, touch.clientY);
+      }, 500);
+    }, { passive: true });
+
+    card.addEventListener('touchend', () => {
+      clearTimeout(touchTimer);
+    });
+
+    card.addEventListener('touchmove', () => {
+      clearTimeout(touchTimer);
+    });
+ 
     container.appendChild(card);
   });
 }
@@ -1202,6 +1233,11 @@ function openAddClientModal() {
   $('clientForm').reset();
   $('formClientId').value = '';
   
+  // Oculta a data de próximo contato na criação
+  if ($('formContactNextGroup')) {
+    $('formContactNextGroup').style.display = 'none';
+  }
+  
   // Set default dates to current time
   const now = new Date();
   // ISO format required for datetime-local: YYYY-MM-DDTHH:MM
@@ -1222,6 +1258,11 @@ function openEditClientModal(id) {
 
   $('clientFormModalTitle').innerText = `Editar Cliente: ${client.name}`;
   $('formClientId').value = client.id;
+  
+  // Exibe a data de próximo contato na edição
+  if ($('formContactNextGroup')) {
+    $('formContactNextGroup').style.display = 'block';
+  }
   
   // Populate form
   $('formClientName').value = client.name;
@@ -1388,6 +1429,9 @@ function viewClientDetails(id) {
   } else {
     gitCard.style.display = 'none';
   }
+
+  // Atualiza a barra de progresso e stepper de status nos detalhes
+  updateDetailStepper(client.projectStatus);
 
   $('modalClientDetails').style.display = 'flex';
 }
@@ -2177,4 +2221,187 @@ function getMockData() {
 
 function getMockTodos() {
   return [];
+}
+
+// ==========================================================================
+// 12. Redesenho Premium: Menu de Contexto, Gestão de Toques e Stepper Lógica
+// ==========================================================================
+let activeContextMenuClientId = null;
+
+function showContextMenu(id, clientX, clientY) {
+  const client = clients.find(c => c.id === id);
+  if (!client) return;
+  
+  activeContextMenuClientId = id;
+  
+  // Preenche dados no menu
+  $('contextMenuProjectName').innerText = client.projectName;
+  $('contextMenuClientName').innerText = client.name;
+  
+  // Destaca o status ativo
+  const activeStatus = client.projectStatus;
+  
+  const btns = {
+    'Idealizando': $('menuStatusIdealizando'),
+    'Estrutura sendo feita': $('menuStatusEstrutura'),
+    'Fase de testes': $('menuStatusTestes'),
+    'Deploy': $('menuStatusDeploy'),
+    'Manutenção': $('menuStatusManutencao')
+  };
+  
+  Object.keys(btns).forEach(status => {
+    if (btns[status]) {
+      btns[status].classList.remove('active');
+      if (status === activeStatus) {
+        btns[status].classList.add('active');
+      }
+    }
+  });
+  
+  const menu = $('projectContextMenu');
+  const backdrop = $('contextMenuBackdrop');
+  
+  menu.style.display = 'flex';
+  backdrop.style.display = 'block';
+  
+  const menuWidth = 220;
+  const menuHeight = 330;
+  const windowWidth = window.innerWidth;
+  const windowHeight = window.innerHeight;
+  
+  let posX = clientX;
+  let posY = clientY;
+  
+  if (clientX + menuWidth > windowWidth) {
+    posX = windowWidth - menuWidth - 10;
+  }
+  if (clientY + menuHeight > windowHeight) {
+    posY = windowHeight - menuHeight - 10;
+  }
+  
+  if (windowWidth > 600) {
+    menu.style.left = `${posX}px`;
+    menu.style.top = `${posY}px`;
+  } else {
+    menu.style.left = '0';
+    menu.style.top = 'auto';
+  }
+}
+
+function closeContextMenu() {
+  $('projectContextMenu').style.display = 'none';
+  $('contextMenuBackdrop').style.display = 'none';
+  activeContextMenuClientId = null;
+}
+
+function triggerContextMenuAction(action) {
+  if (!activeContextMenuClientId) return;
+  const id = activeContextMenuClientId;
+  closeContextMenu();
+  
+  if (action === 'details') {
+    viewClientDetails(id);
+  } else if (action === 'edit') {
+    openEditClientModal(id);
+  } else if (action === 'delete') {
+    deleteClientDirect(id);
+  }
+}
+
+function deleteClientDirect(id) {
+  if (!id) return;
+  if (confirm('Tem certeza absoluta de que deseja remover este cliente e todos os seus projetos?')) {
+    // Cloud Sync DELETE hook
+    SupabaseSyncEngine.deleteRecord('clients', id);
+
+    clients = clients.filter(c => c.id !== id);
+    localStorage.setItem(getUserKey('crm_clients'), JSON.stringify(clients));
+    
+    showToast('Cliente removido do sistema.', 'warning');
+    renderDashboard();
+    renderClientsList();
+    renderTimeline();
+  }
+}
+
+async function changeProjectStatusDirect(newStatus) {
+  if (!activeContextMenuClientId) return;
+  const id = activeContextMenuClientId;
+  const clientIndex = clients.findIndex(c => c.id === id);
+  if (clientIndex !== -1) {
+    clients[clientIndex].projectStatus = newStatus;
+    localStorage.setItem(getUserKey('crm_clients'), JSON.stringify(clients));
+    
+    // Sync with Supabase
+    if (SupabaseSyncEngine.active) {
+      SupabaseSyncEngine.pushRecord('clients', mapClientToDb(clients[clientIndex]));
+    }
+    
+    showToast(`Status atualizado para "${newStatus}"!`, 'success');
+    closeContextMenu();
+    
+    renderDashboard();
+    renderClientsList();
+    renderTimeline();
+  }
+}
+
+async function changeActiveProjectStatus(newStatus) {
+  if (!activeDetailClientId) return;
+  const id = activeDetailClientId;
+  const clientIndex = clients.findIndex(c => c.id === id);
+  if (clientIndex !== -1) {
+    clients[clientIndex].projectStatus = newStatus;
+    localStorage.setItem(getUserKey('crm_clients'), JSON.stringify(clients));
+    
+    // Atualiza o distintivo de status
+    const badge = $('detailProjectStatus');
+    if (badge) {
+      badge.innerText = newStatus;
+      badge.className = `status-badge ${newStatus.toLowerCase().split(' ')[0]}`;
+    }
+    
+    // Anima o stepper na visualização
+    updateDetailStepper(newStatus);
+    
+    // Sync com Supabase
+    if (SupabaseSyncEngine.active) {
+      SupabaseSyncEngine.pushRecord('clients', mapClientToDb(clients[clientIndex]));
+    }
+    
+    showToast(`Status atualizado para "${newStatus}"!`, 'success');
+    
+    renderDashboard();
+    renderClientsList();
+    renderTimeline();
+  }
+}
+
+function updateDetailStepper(status) {
+  const steps = document.querySelectorAll('#modalClientDetails .stepper-step');
+  const fill = $('detailStepperProgress');
+  if (!fill) return;
+  
+  const statuses = [
+    'Idealizando',
+    'Estrutura sendo feita',
+    'Fase de testes',
+    'Deploy',
+    'Manutenção'
+  ];
+  
+  const currentIndex = statuses.indexOf(status);
+  const progressWidths = [0, 25, 50, 75, 100];
+  const width = currentIndex !== -1 ? progressWidths[currentIndex] : 0;
+  fill.style.width = `${width}%`;
+  
+  steps.forEach((step, idx) => {
+    step.classList.remove('active', 'completed', 'pulse');
+    if (idx < currentIndex) {
+      step.classList.add('completed');
+    } else if (idx === currentIndex) {
+      step.classList.add('active');
+      step.classList.add('pulse');
+    }
+  });
 }

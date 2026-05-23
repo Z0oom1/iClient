@@ -1937,3 +1937,392 @@ button, input, select, textarea {
   box-shadow: 0 0 12px rgba(96, 165, 250, 0.35) !important;
 }
 
+/* ==========================================================================
+   15. Redesenho Premium: Menu de Contexto, Steppers e Input Icons
+   ========================================================================== */
+
+/* Custom Context Menu */
+.context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 220px;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+  display: none;
+  flex-direction: column;
+  animation: scaleInMenu 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: top left;
+}
+
+@keyframes scaleInMenu {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.2s, color 0.2s;
+}
+
+.context-menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--primary-glow);
+}
+
+.context-menu-item.danger {
+  color: #ef4444;
+}
+.context-menu-item.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.context-menu-item svg {
+  width: 16px;
+  height: 16px;
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 6px 0;
+}
+
+/* Context Menu Status Section */
+.menu-status-section {
+  padding: 8px 10px;
+}
+
+.menu-section-title {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.menu-status-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+
+.status-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  text-align: left;
+  transition: all 0.2s;
+  width: 100%;
+}
+
+.status-btn:before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.status-btn.idealizando:before { background: var(--status-idealizando, #a855f7); }
+.status-btn.estrutura:before { background: var(--status-estrutura, #3b82f6); }
+.status-btn.testes:before { background: var(--status-testes, #f97316); }
+.status-btn.deploy:before { background: var(--status-deploy, #10b981); }
+.status-btn.manutencao:before { background: var(--status-manutencao, #14b8a6); }
+
+.status-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.status-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: var(--primary-glow);
+  font-weight: bold;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.1);
+}
+
+/* Background Backdrop for context menu dismissal */
+.context-menu-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: transparent;
+  z-index: 9999;
+  display: none;
+}
+
+/* Responsive iOS Action Sheet for mobile */
+@media (max-width: 600px) {
+  .context-menu {
+    position: fixed;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    border-radius: 20px 20px 0 0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: none;
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
+    padding: 20px;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+    transform: translateY(100%);
+    animation: slideUpActionSheet 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    transform-origin: bottom center;
+  }
+  
+  @keyframes slideUpActionSheet {
+    to { transform: translateY(0); }
+  }
+  
+  .context-menu-backdrop {
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  
+  .context-menu-item {
+    padding: 14px 18px;
+    font-size: 1rem;
+    border-radius: 10px;
+  }
+  
+  .menu-status-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+  
+  .status-btn {
+    padding: 10px 12px;
+    font-size: 0.85rem;
+  }
+}
+
+/* Stepper de progresso dinâmico nos detalhes */
+.status-stepper-container {
+  width: 100%;
+  margin: 20px 0 10px;
+}
+
+.stepper-wrapper {
+  position: relative;
+  width: 100%;
+  padding: 15px 0 35px;
+}
+
+.stepper-progress-bar {
+  position: absolute;
+  top: 25px;
+  left: 5%;
+  right: 5%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  z-index: 1;
+}
+
+.stepper-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--primary, #6366f1) 0%, var(--success, #10b981) 100%);
+  box-shadow: 0 0 10px var(--primary-glow);
+  border-radius: 2px;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stepper-steps {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  z-index: 2;
+  width: 100%;
+}
+
+.stepper-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  width: 18%;
+  text-align: center;
+}
+
+.step-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #0f172a;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 0 4px #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+.step-dot:after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.step-label {
+  margin-top: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: color 0.3s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  pointer-events: none;
+}
+
+/* Estados da etapa do stepper */
+.stepper-step.completed .step-dot {
+  border-color: var(--success, #10b981);
+  background: var(--success, #10b981);
+}
+
+.stepper-step.completed .step-dot:after {
+  background: white;
+  width: 6px;
+  height: 6px;
+}
+
+.stepper-step.completed .step-label {
+  color: var(--success);
+}
+
+.stepper-step.active .step-dot {
+  border-color: var(--primary, #6366f1);
+  background: #0f172a;
+  box-shadow: 0 0 0 4px #0f172a, 0 0 12px var(--primary-glow);
+  transform: scale(1.15);
+}
+
+.stepper-step.active .step-dot:after {
+  background: var(--primary, #6366f1);
+  width: 10px;
+  height: 10px;
+}
+
+.stepper-step.active .step-label {
+  color: var(--primary-glow);
+  font-weight: 700;
+}
+
+.stepper-step.active.pulse .step-dot {
+  animation: stepper-pulse 1.8s infinite;
+}
+
+@keyframes stepper-pulse {
+  0% { box-shadow: 0 0 0 0px rgba(99, 102, 241, 0.4), 0 0 12px var(--primary-glow); }
+  70% { box-shadow: 0 0 0 8px rgba(99, 102, 241, 0), 0 0 12px var(--primary-glow); }
+  100% { box-shadow: 0 0 0 0px rgba(99, 102, 241, 0), 0 0 12px var(--primary-glow); }
+}
+
+@media (max-width: 600px) {
+  .stepper-progress-bar {
+    left: 8%;
+    right: 8%;
+  }
+  .step-label {
+    font-size: 0.65rem;
+    margin-top: 6px;
+  }
+  .step-dot {
+    width: 20px;
+    height: 20px;
+  }
+  .step-dot:after {
+    width: 6px;
+    height: 6px;
+  }
+  .stepper-step.active .step-dot:after {
+    width: 8px;
+    height: 8px;
+  }
+}
+
+/* Premium Form Icons */
+.form-group .input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.form-group .input-wrapper svg {
+  position: absolute;
+  left: 14px;
+  width: 18px;
+  height: 18px;
+  color: var(--text-secondary);
+  pointer-events: none;
+  transition: color 0.25s, transform 0.25s;
+}
+
+.form-group .input-wrapper input,
+.form-group .input-wrapper select,
+.form-group .input-wrapper textarea {
+  padding-left: 44px !important;
+  width: 100%;
+}
+
+.form-group .input-wrapper input:focus ~ svg,
+.form-group .input-wrapper select:focus ~ svg,
+.form-group .input-wrapper textarea:focus ~ svg {
+  color: var(--info);
+  transform: scale(1.05);
+}
+
+/* Leveza premium nos cards */
+.client-card {
+  cursor: pointer;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s, box-shadow 0.25s;
+}
+
+.client-card:hover {
+  transform: translateY(-4px) scale(1.015);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+
