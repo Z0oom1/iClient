@@ -2847,16 +2847,11 @@ async function handleSocialLogin(provider) {
   showToast('Iniciando pareamento com o GitHub...', 'info');
   
   try {
-    const response = await fetch('https://corsproxy.io/?https://github.com/login/device/code', {
+    const response = await fetch(`https://corsproxy.io/?https://github.com/login/device/code?client_id=${clientId}&scope=read:user`, {
       method: 'POST',
       headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        client_id: clientId,
-        scope: 'read:user'
-      })
+        'Accept': 'application/json'
+      }
     });
     
     if (!response.ok) {
@@ -2933,17 +2928,11 @@ function startDevicePolling(clientId, deviceCode, interval) {
   
   devicePollTimer = setInterval(async () => {
     try {
-      const response = await fetch('https://corsproxy.io/?https://github.com/login/oauth/access_token', {
+      const response = await fetch(`https://corsproxy.io/?https://github.com/login/oauth/access_token?client_id=${clientId}&device_code=${deviceCode}&grant_type=urn:ietf:params:oauth:grant-type:device_code`, {
         method: 'POST',
         headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          client_id: clientId,
-          device_code: deviceCode,
-          grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
-        })
+          'Accept': 'application/json'
+        }
       });
       
       const tokenData = await response.json();
