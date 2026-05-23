@@ -98,6 +98,16 @@ function loadScopedUserData() {
   const savedWallpaper = localStorage.getItem(getUserKey('crm_active_wallpaper')) || 'bg.png';
   document.body.style.background = `linear-gradient(rgba(15, 23, 42, 0.75), rgba(15, 23, 42, 0.85)), url('${savedWallpaper}') no-repeat center center / cover`;
 
+  // Carrega as preferências personalizadas do usuário ativo
+  const savedThemeColor = localStorage.getItem(getUserKey('crm_theme_color')) || 'indigo';
+  selectThemeColor(savedThemeColor, true);
+
+  const liquidGlassDisabled = localStorage.getItem(getUserKey('crm_liquid_glass_disabled')) === 'true';
+  handleLiquidGlassChange(!liquidGlassDisabled, true);
+
+  const stackToasts = localStorage.getItem(getUserKey('crm_stack_toasts')) !== 'false';
+  handleStackToastsChange(stackToasts, true);
+
   // Initialize Supabase Sync Engine
   SupabaseSyncEngine.init();
   if (SupabaseSyncEngine.active) {
@@ -212,6 +222,13 @@ async function handleLogin() {
 function handleLogout() {
   localStorage.removeItem('crm_active_user');
   activeUser = null;
+
+  // Reset visual overrides on logout
+  const root = document.documentElement;
+  root.style.setProperty('--primary', '#6366f1');
+  root.style.setProperty('--primary-glow', 'rgba(99, 102, 241, 0.25)');
+  document.body.classList.remove('liquid-glass-disabled');
+
   showToast('Sessão encerrada com sucesso.', 'info');
   checkAuth();
 }
@@ -586,6 +603,7 @@ function switchActiveTab(viewId, element) {
     renderTodoList();
   } else if (viewId === 'viewConfiguracoes') {
     renderWallpaperGrid();
+    populateProfileSettings();
   }
 }
 
@@ -633,6 +651,12 @@ function updateClockAndGreeting() {
 function showToast(message, type = 'info') {
   const container = $('toastContainer');
   if (!container) return;
+
+  // Check toast stack preference
+  const stackToasts = localStorage.getItem(getUserKey('crm_stack_toasts')) !== 'false';
+  if (!stackToasts) {
+    container.innerHTML = '';
+  }
 
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
@@ -2456,4 +2480,183 @@ function selectWallpaper(url) {
   localStorage.setItem(getUserKey('crm_active_wallpaper'), url);
   renderWallpaperGrid();
   showToast('Plano de fundo atualizado!', 'success');
+}
+
+// ==========================================================================
+// 17. Gerenciamento de Perfil e Preferências Estilo Apple HIG
+// ==========================================================================
+let selectedProfileLogoBase64 = "";
+
+function handleProfileLogoSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    showToast('Por favor, selecione uma imagem válida.', 'error');
+    return;
+  }
+
+  if (file.size > 2 * 1024 * 1024) {
+    showToast('A imagem deve ter no máximo 2MB.', 'error');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    selectedProfileLogoBase64 = e.target.result;
+    
+    // Display preview
+    if ($('profileLogoPreviewImg')) $('profileLogoPreviewImg').src = selectedProfileLogoBase64;
+    if ($('profileLogoPreviewContainer')) $('profileLogoPreviewContainer').style.display = 'block';
+    if ($('profileUploadPlaceholder')) $('profileUploadPlaceholder').style.display = 'none';
+    
+    showToast('Logotipo do perfil carregado!', 'success');
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeProfileLogoSelect(event) {
+  if (event) event.stopPropagation();
+  selectedProfileLogoBase64 = "";
+  if ($('profileCompanyLogoInput')) $('profileCompanyLogoInput').value = "";
+  if ($('profileLogoPreviewImg')) $('profileLogoPreviewImg').src = "";
+  if ($('profileLogoPreviewContainer')) $('profileLogoPreviewContainer').style.display = 'none';
+  if ($('profileUploadPlaceholder')) $('profileUploadPlaceholder').style.display = 'flex';
+}
+
+function selectThemeColor(colorName, skipToast = false) {
+  const themeColors = {
+    indigo: { primary: '#6366f1', glow: 'rgba(99, 102, 241, 0.25)' },
+    blue: { primary: '#3b82f6', glow: 'rgba(59, 130, 246, 0.25)' },
+    emerald: { primary: '#10b981', glow: 'rgba(16, 185, 129, 0.25)' },
+    crimson: { primary: '#ef4444', glow: 'rgba(239, 68, 68, 0.25)' },
+    amber: { primary: '#f59e0b', glow: 'rgba(245, 158, 11, 0.25)' },
+    teal: { primary: '#14b8a6', glow: 'rgba(20, 184, 166, 0.25)' }
+  };
+
+  const theme = themeColors[colorName] || themeColors.indigo;
+  const root = document.documentElement;
+  root.style.setProperty('--primary', theme.primary);
+  root.style.setProperty('--primary-glow', theme.glow);
+
+  // Update dots active class
+  document.querySelectorAll('.color-dot').forEach(dot => dot.classList.remove('active'));
+  const activeDot = document.querySelector(`.color-dot.${colorName}`);
+  if (activeDot) activeDot.classList.add('active');
+
+  // Persist choice scoped
+  localStorage.setItem(getUserKey('crm_theme_color'), colorName);
+
+  if (!skipToast) {
+    showToast(`Cor de tema alterada com sucesso!`, 'success');
+  }
+}
+
+function handleLiquidGlassChange(isEnabled, skipToast = false) {
+  const toggleEl = $('prefLiquidGlassToggle');
+  if (toggleEl) toggleEl.checked = isEnabled;
+
+  if (isEnabled) {
+    document.body.classList.remove('liquid-glass-disabled');
+    localStorage.setItem(getUserKey('crm_liquid_glass_disabled'), 'false');
+    if (!skipToast) showToast('Efeito Liquid Glass premium ativado!', 'success');
+  } else {
+    document.body.classList.add('liquid-glass-disabled');
+    localStorage.setItem(getUserKey('crm_liquid_glass_disabled'), 'true');
+    if (!skipToast) showToast('Efeito Liquid Glass premium desativado!', 'info');
+  }
+}
+
+function handleStackToastsChange(isEnabled, skipToast = false) {
+  const toggleEl = $('prefStackToastsToggle');
+  if (toggleEl) toggleEl.checked = isEnabled;
+
+  localStorage.setItem(getUserKey('crm_stack_toasts'), isEnabled ? 'true' : 'false');
+  if (!skipToast) {
+    if (isEnabled) {
+      showToast('Empilhamento de notificações ativado!', 'success');
+    } else {
+      showToast('Empilhamento desativado. Avisos serão sobrepostos.', 'info');
+    }
+  }
+}
+
+function populateProfileSettings() {
+  if (!activeUser) return;
+  
+  if ($('profileName')) $('profileName').value = activeUser.name || '';
+  if ($('profileCompany')) $('profileCompany').value = activeUser.company || '';
+  if ($('profileEmail')) $('profileEmail').value = activeUser.email || '';
+  if ($('profilePassword')) $('profilePassword').value = ''; 
+
+  if (activeUser.logo) {
+    selectedProfileLogoBase64 = activeUser.logo;
+    if ($('profileLogoPreviewImg')) $('profileLogoPreviewImg').src = activeUser.logo;
+    if ($('profileLogoPreviewContainer')) $('profileLogoPreviewContainer').style.display = 'block';
+    if ($('profileUploadPlaceholder')) $('profileUploadPlaceholder').style.display = 'none';
+  } else {
+    removeProfileLogoSelect(null);
+  }
+}
+
+async function saveProfileInfo() {
+  if (!activeUser) return;
+
+  const name = $('profileName').value.trim();
+  const company = $('profileCompany').value.trim();
+  const password = $('profilePassword').value;
+  const logo = selectedProfileLogoBase64 || "";
+
+  if (!name || !company) {
+    showToast('Por favor, preencha todos os campos obrigatórios.', 'warning');
+    return;
+  }
+
+  // Update active user details
+  activeUser.name = name;
+  activeUser.company = company;
+  if (password) {
+    activeUser.password = password;
+  }
+  activeUser.logo = logo;
+
+  // Save active user in localStorage
+  localStorage.setItem('crm_active_user', JSON.stringify(activeUser));
+
+  // Update crm_users database list
+  const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+  const uIdx = users.findIndex(u => u.email.toLowerCase() === activeUser.email.toLowerCase());
+  if (uIdx !== -1) {
+    users[uIdx].name = name;
+    users[uIdx].company = company;
+    if (password) {
+      users[uIdx].password = password;
+    }
+    users[uIdx].logo = logo;
+    localStorage.setItem('crm_users', JSON.stringify(users));
+  }
+
+  // Push to Supabase Cloud
+  if (SupabaseSyncEngine.active) {
+    showToast('Sincronizando perfil com a nuvem...', 'info');
+    await SupabaseSyncEngine.pushProfile(activeUser);
+  }
+
+  // Update UI Elements Immediately
+  if (activeUser.logo) {
+    if ($('headerCompanyLogo')) {
+      $('headerCompanyLogo').src = activeUser.logo;
+      $('headerCompanyLogo').style.display = 'block';
+    }
+    if ($('headerAvatar')) $('headerAvatar').style.display = 'none';
+  } else {
+    if ($('headerAvatar')) {
+      $('headerAvatar').innerText = getInitials(activeUser.company || activeUser.name);
+      $('headerAvatar').style.display = 'flex';
+    }
+    if ($('headerCompanyLogo')) $('headerCompanyLogo').style.display = 'none';
+  }
+
+  updateClockAndGreeting();
+  showToast('Perfil atualizado com sucesso!', 'success');
 }
