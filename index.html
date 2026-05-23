@@ -57,9 +57,27 @@
       
       <!-- B.1. LOGIN VIEW -->
       <div id="loginView">
-        <div class="login-subtitle">Acesso de Colaboradores</div>
+        <!-- New Members List selection area -->
+        <div id="loginMembersArea" style="display: none; margin-bottom: 20px;">
+          <div class="login-subtitle" style="margin-bottom: 16px;">Selecione seu perfil</div>
+          <div class="members-grid" id="loginMembersGrid"></div>
+          
+          <button type="button" class="btn-secondary" onclick="showTraditionalLogin()" style="width: 100%; font-size: 0.85rem; padding: 10px; border-radius: 12px; margin-top: 12px;">
+            Acesso Tradicional / Novo Membro
+          </button>
+        </div>
+
+        <!-- Traditional Login Form -->
         <form id="loginForm" class="login-form" onsubmit="event.preventDefault(); handleLogin();">
-          <div class="input-group">
+          <!-- Button to return to profile selector -->
+          <button type="button" id="btnBackToMembers" class="btn-back-portal" onclick="showMembersGrid()" style="display: none; width: auto; margin-bottom: 12px; padding: 4px 0; font-size: 0.85rem; gap: 4px;">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 14px; height: 14px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+            </svg>
+            Selecionar outro perfil
+          </button>
+
+          <div class="input-group" id="loginEmailGroup">
             <label for="loginEmail">E-mail ou Usuário</label>
             <div class="input-wrapper">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -70,7 +88,7 @@
           </div>
           
           <div class="input-group">
-            <label for="loginPassword">Senha</label>
+            <label for="loginPassword" id="labelLoginPassword">Senha</label>
             <div class="input-wrapper">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
@@ -673,6 +691,17 @@
                 </div>
               </label>
 
+              <label class="ios-switch-label" style="border-top: 1px solid rgba(255,255,255,0.04); padding-top: 14px;">
+                <div>
+                  <span>Tema Claro (Light Mode)</span>
+                  <p style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 2px;">Alterna o visual geral da aplicação de Dark Mode (padrão de desenvolvedor) para um tema claro Apple HIG premium.</p>
+                </div>
+                <div class="ios-switch">
+                  <input type="checkbox" id="prefLightThemeToggle" onchange="handleLightThemeChange(this.checked)">
+                  <span class="ios-slider"></span>
+                </div>
+              </label>
+
             </div>
 
           </div>
@@ -695,7 +724,7 @@
         </section>
         
         <!-- Nuvem & Sincronização (Supabase) -->
-        <section class="settings-card">
+        <section class="settings-card" id="settingsCardSupabase">
           <h2 class="settings-section-title">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
@@ -794,7 +823,7 @@ ALTER TABLE public.scratchpad DISABLE ROW LEVEL SECURITY;</textarea>
         </section>
         
         <!-- Integrations (GitHub Token & OAuth) -->
-        <section class="settings-card">
+        <section class="settings-card" id="settingsCardGithub">
           <h2 class="settings-section-title">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
               <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
@@ -847,7 +876,7 @@ ALTER TABLE public.scratchpad DISABLE ROW LEVEL SECURITY;</textarea>
         </section>
 
         <!-- Danger Zone -->
-        <section class="settings-card" style="border-color: rgba(239, 68, 68, 0.2);">
+        <section class="settings-card" id="settingsCardDanger" style="border-color: rgba(239, 68, 68, 0.2);">
           <h2 class="settings-section-title" style="color: var(--danger);">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />

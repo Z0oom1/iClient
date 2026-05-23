@@ -110,7 +110,7 @@ function initApp() {
   }
 }
 
-function loadScopedUserData() {
+async function loadScopedUserData() {
   if (!activeUser) return;
   
   clients = JSON.parse(localStorage.getItem(getUserKey('crm_clients'))) || [];
@@ -136,24 +136,88 @@ function loadScopedUserData() {
     }
   }
 
-  // Carrega o wallpaper do usuário ativo
+  // Load local values first (fast start)
   const savedWallpaper = localStorage.getItem(getUserKey('crm_active_wallpaper')) || 'bg.png';
-  document.body.style.background = `linear-gradient(rgba(15, 23, 42, 0.75), rgba(15, 23, 42, 0.85)), url('${savedWallpaper}') no-repeat center center / cover`;
+  selectWallpaper(savedWallpaper, true, true);
 
-  // Carrega as preferências personalizadas do usuário ativo
   const savedThemeColor = localStorage.getItem(getUserKey('crm_theme_color')) || 'indigo';
-  selectThemeColor(savedThemeColor, true);
+  selectThemeColor(savedThemeColor, true, true);
 
   const liquidGlassDisabled = localStorage.getItem(getUserKey('crm_liquid_glass_disabled')) === 'true';
-  handleLiquidGlassChange(!liquidGlassDisabled, true);
+  handleLiquidGlassChange(!liquidGlassDisabled, true, true);
 
-  const stackToasts = localStorage.getItem(getUserKey('crm_stack_toasts')) !== 'false';
-  handleStackToastsChange(stackToasts, true);
+  const stackToasts = localStorage.getItem(getUserKey('crm_stack_toasts')) === 'true';
+  handleStackToastsChange(stackToasts, true, true);
+
+  const lightMode = localStorage.getItem(getUserKey('crm_light_mode')) === 'true';
+  handleLightThemeChange(lightMode, true);
 
   // Initialize Supabase Sync Engine
   SupabaseSyncEngine.init();
   if (SupabaseSyncEngine.active) {
+    // Pull shared company elements
     SupabaseSyncEngine.pullAll();
+    
+    // Asynchronously fetch cloud settings & override local ones
+    pullCloudSettings();
+  }
+}
+
+async function pullCloudSettings() {
+  if (!SupabaseSyncEngine.active || !activeUser) return;
+  try {
+    const resSettings = await fetch(`${SupabaseSyncEngine.url}/rest/v1/scratchpad?id=eq.settings_${activeUser.email}`, {
+      method: 'GET',
+      headers: SupabaseSyncEngine.getHeaders()
+    });
+    if (resSettings.ok) {
+      const dbSettings = await resSettings.json();
+      if (dbSettings && dbSettings.length > 0 && dbSettings[0].content) {
+        const settings = JSON.parse(dbSettings[0].content);
+        
+        localStorage.setItem(getUserKey('crm_theme_color'), settings.themeColor || 'indigo');
+        localStorage.setItem(getUserKey('crm_active_wallpaper'), settings.wallpaper || 'bg.png');
+        localStorage.setItem(getUserKey('crm_liquid_glass_disabled'), settings.liquidGlassDisabled ? 'true' : 'false');
+        localStorage.setItem(getUserKey('crm_stack_toasts'), settings.stackToasts ? 'true' : 'false');
+        localStorage.setItem(getUserKey('crm_light_mode'), settings.lightMode ? 'true' : 'false');
+        
+        // Re-apply settings
+        selectThemeColor(settings.themeColor || 'indigo', true, true);
+        selectWallpaper(settings.wallpaper || 'bg.png', true, true);
+        handleLiquidGlassChange(!settings.liquidGlassDisabled, true, true);
+        handleStackToastsChange(!!settings.stackToasts, true, true);
+        handleLightThemeChange(!!settings.lightMode, true);
+      }
+    }
+  } catch (e) {
+    console.warn('Erro ao carregar configurações da nuvem:', e);
+  }
+}
+
+async function syncSettingsToCloud() {
+  if (!SupabaseSyncEngine.active || !activeUser) return;
+  try {
+    const themeColor = localStorage.getItem(getUserKey('crm_theme_color')) || 'indigo';
+    const wallpaper = localStorage.getItem(getUserKey('crm_active_wallpaper')) || 'bg.png';
+    const liquidGlassDisabled = localStorage.getItem(getUserKey('crm_liquid_glass_disabled')) === 'true';
+    const stackToasts = localStorage.getItem(getUserKey('crm_stack_toasts')) === 'true';
+    const lightMode = localStorage.getItem(getUserKey('crm_light_mode')) === 'true';
+    
+    const settings = {
+      themeColor,
+      wallpaper,
+      liquidGlassDisabled,
+      stackToasts,
+      lightMode
+    };
+    
+    await SupabaseSyncEngine.pushRecord('scratchpad', {
+      id: `settings_${activeUser.email}`,
+      user_email: activeUser.email,
+      content: JSON.stringify(settings)
+    });
+  } catch (e) {
+    console.error('Erro ao salvar preferências na nuvem:', e);
   }
 }
 
@@ -334,6 +398,10 @@ function showLoginView() {
   $('verificationView').style.display = 'none';
   $('resetPasswordView').style.display = 'none';
   $('loginError').classList.remove('visible');
+  
+  if (selectedCompanyId) {
+    showMembersGrid();
+  }
 }
 
 function showRegisterView() {
@@ -753,7 +821,7 @@ function showToast(message, type = 'info') {
   if (!container) return;
 
   // Check toast stack preference
-  const stackToasts = localStorage.getItem(getUserKey('crm_stack_toasts')) !== 'false';
+  const stackToasts = localStorage.getItem(getUserKey('crm_stack_toasts')) === 'true';
   if (!stackToasts) {
     container.innerHTML = '';
   }
@@ -2345,6 +2413,22 @@ const SupabaseSyncEngine = {
   }
 };
 
+async function pushAllProfilesAndCompaniesToCloud() {
+  if (!SupabaseSyncEngine.active) return;
+  
+  // Push companies
+  const localCompanies = JSON.parse(localStorage.getItem('crm_companies')) || [];
+  for (const comp of localCompanies) {
+    await SupabaseSyncEngine.pushCompany(comp);
+  }
+  
+  // Push all users/profiles
+  const localUsers = JSON.parse(localStorage.getItem('crm_users')) || [];
+  for (const user of localUsers) {
+    await SupabaseSyncEngine.pushProfile(user);
+  }
+}
+
 async function connectSupabaseCloud() {
   const url = sanitizeSupabaseUrl($('supabaseUrlInput').value);
   const key = $('supabaseKeyInput').value.trim();
@@ -2373,6 +2457,7 @@ async function connectSupabaseCloud() {
 
     // Perform initial sync (Push local data to Supabase first so the cloud has our current projects, then Pull)
     await pushAllLocalDataToCloud();
+    await pushAllProfilesAndCompaniesToCloud();
     
     // Now pull to align
     await SupabaseSyncEngine.pullAll();
@@ -2694,11 +2779,16 @@ function renderWallpaperGrid() {
   });
 }
 
-function selectWallpaper(url) {
+function selectWallpaper(url, skipToast = false, skipSync = false) {
   document.body.style.background = `linear-gradient(rgba(15, 23, 42, 0.75), rgba(15, 23, 42, 0.85)), url('${url}') no-repeat center center / cover`;
   localStorage.setItem(getUserKey('crm_active_wallpaper'), url);
   renderWallpaperGrid();
-  showToast('Plano de fundo atualizado!', 'success');
+  if (!skipToast) {
+    showToast('Plano de fundo atualizado!', 'success');
+  }
+  if (!skipSync) {
+    syncSettingsToCloud();
+  }
 }
 
 // ==========================================================================
@@ -2743,7 +2833,7 @@ function removeProfileLogoSelect(event) {
   if ($('profileUploadPlaceholder')) $('profileUploadPlaceholder').style.display = 'flex';
 }
 
-function selectThemeColor(colorName, skipToast = false) {
+function selectThemeColor(colorName, skipToast = false, skipSync = false) {
   const themeColors = {
     indigo: { primary: '#6366f1', glow: 'rgba(99, 102, 241, 0.25)' },
     blue: { primary: '#3b82f6', glow: 'rgba(59, 130, 246, 0.25)' },
@@ -2769,9 +2859,13 @@ function selectThemeColor(colorName, skipToast = false) {
   if (!skipToast) {
     showToast(`Cor de tema alterada com sucesso!`, 'success');
   }
+
+  if (!skipSync) {
+    syncSettingsToCloud();
+  }
 }
 
-function handleLiquidGlassChange(isEnabled, skipToast = false) {
+function handleLiquidGlassChange(isEnabled, skipToast = false, skipSync = false) {
   const toggleEl = $('prefLiquidGlassToggle');
   if (toggleEl) toggleEl.checked = isEnabled;
 
@@ -2784,9 +2878,13 @@ function handleLiquidGlassChange(isEnabled, skipToast = false) {
     localStorage.setItem(getUserKey('crm_liquid_glass_disabled'), 'true');
     if (!skipToast) showToast('Efeito Liquid Glass premium desativado!', 'info');
   }
+
+  if (!skipSync) {
+    syncSettingsToCloud();
+  }
 }
 
-function handleStackToastsChange(isEnabled, skipToast = false) {
+function handleStackToastsChange(isEnabled, skipToast = false, skipSync = false) {
   const toggleEl = $('prefStackToastsToggle');
   if (toggleEl) toggleEl.checked = isEnabled;
 
@@ -2797,6 +2895,27 @@ function handleStackToastsChange(isEnabled, skipToast = false) {
     } else {
       showToast('Empilhamento desativado. Avisos serão sobrepostos.', 'info');
     }
+  }
+
+  if (!skipSync) {
+    syncSettingsToCloud();
+  }
+}
+
+function handleLightThemeChange(isEnabled, skipSync = false) {
+  const toggleEl = $('prefLightThemeToggle');
+  if (toggleEl) toggleEl.checked = isEnabled;
+
+  if (isEnabled) {
+    document.body.classList.add('light-theme');
+    localStorage.setItem(getUserKey('crm_light_mode'), 'true');
+  } else {
+    document.body.classList.remove('light-theme');
+    localStorage.setItem(getUserKey('crm_light_mode'), 'false');
+  }
+
+  if (!skipSync) {
+    syncSettingsToCloud();
   }
 }
 
@@ -2816,6 +2935,23 @@ function populateProfileSettings() {
   } else {
     removeProfileLogoSelect(null);
   }
+
+  // Populate dynamic switches states from cloud-synced local preferences
+  if ($('prefLiquidGlassToggle')) {
+    $('prefLiquidGlassToggle').checked = localStorage.getItem(getUserKey('crm_liquid_glass_disabled')) !== 'true';
+  }
+  if ($('prefStackToastsToggle')) {
+    $('prefStackToastsToggle').checked = localStorage.getItem(getUserKey('crm_stack_toasts')) === 'true';
+  }
+  if ($('prefLightThemeToggle')) {
+    $('prefLightThemeToggle').checked = localStorage.getItem(getUserKey('crm_light_mode')) === 'true';
+  }
+
+  // Hide admin settings sections from normal team members (RBAC)
+  const isAdmin = activeUser.role === 'admin';
+  if ($('settingsCardSupabase')) $('settingsCardSupabase').style.display = isAdmin ? 'block' : 'none';
+  if ($('settingsCardGithub')) $('settingsCardGithub').style.display = isAdmin ? 'block' : 'none';
+  if ($('settingsCardDanger')) $('settingsCardDanger').style.display = isAdmin ? 'block' : 'none';
 }
 
 async function saveProfileInfo() {
@@ -2924,6 +3060,18 @@ async function initCompaniesAndUsersSeed() {
     });
     localStorage.setItem('crm_users', JSON.stringify(usersList));
   }
+
+  // Seeding to Cloud if active
+  if (SupabaseSyncEngine.active) {
+    const crdevsComp = companies.find(c => c.id === 'crdevs');
+    if (crdevsComp) {
+      await SupabaseSyncEngine.pushCompany(crdevsComp);
+    }
+    const adminUser = usersList.find(u => u.username === 'Z0oom1');
+    if (adminUser) {
+      await SupabaseSyncEngine.pushProfile(adminUser);
+    }
+  }
 }
 
 function renderCompanyPortal() {
@@ -2964,7 +3112,7 @@ function selectCompanyPortal(companyId) {
   $('loginLogoImg').src = comp.logo;
   $('loginCompanyName').innerText = comp.name;
   
-  // Hide standard links and GitHub SSO button if CRdevs to enforce locks
+  // Enforce CRdevs login lock restrictions
   if (companyId === 'crdevs') {
     $('authLinksContainer').style.display = 'none';
     $('socialLoginSeparator').style.display = 'none';
@@ -2974,8 +3122,8 @@ function selectCompanyPortal(companyId) {
     $('socialLoginSeparator').style.display = 'block';
     $('socialLoginGrid').style.display = 'flex';
   }
-  
-  showLoginView();
+
+  showMembersGrid();
 }
 
 function showCompanyPortal() {
@@ -2983,6 +3131,94 @@ function showCompanyPortal() {
   $('loginCard').style.display = 'none';
   $('companyPortalView').style.display = 'block';
   renderCompanyPortal();
+}
+
+function showMembersGrid() {
+  const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+  const compMembers = users.filter(u => u.companyId === selectedCompanyId);
+  
+  if (compMembers.length === 0) {
+    showTraditionalLogin();
+    return;
+  }
+  
+  $('loginMembersArea').style.display = 'block';
+  $('loginForm').style.display = 'none';
+  $('btnBackToMembers').style.display = 'none';
+  
+  const grid = $('loginMembersGrid');
+  grid.innerHTML = '';
+  
+  compMembers.forEach(user => {
+    const card = document.createElement('div');
+    card.className = 'member-login-card';
+    card.onclick = () => handleMemberSelect(user);
+    
+    // Determine avatar
+    let avatarHtml = '';
+    if (user.logo) {
+      avatarHtml = `<img src="${user.logo}" alt="${user.name}">`;
+    } else {
+      const initials = getInitials(user.name);
+      avatarHtml = `<div class="member-initials">${initials}</div>`;
+    }
+    
+    const isGitHub = user.password && user.password.startsWith('github-token:');
+    
+    card.innerHTML = `
+      ${avatarHtml}
+      <div class="member-info">
+        <div class="member-name">${user.name}</div>
+        <div class="member-role">${user.role === 'admin' ? 'Admin' : 'Colaborador'}</div>
+      </div>
+      ${isGitHub ? `
+        <span class="member-badge github" title="Login GitHub instantâneo">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24" style="width: 12px; height: 12px;">
+            <path fill-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.579.688.481C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" clip-rule="evenodd" />
+          </svg>
+        </span>
+      ` : ''}
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function showTraditionalLogin() {
+  $('loginMembersArea').style.display = 'none';
+  $('loginForm').style.display = 'block';
+  $('loginEmailGroup').style.display = 'block';
+  $('loginEmail').value = '';
+  $('loginPassword').value = '';
+  $('labelLoginPassword').innerText = 'Senha';
+  $('btnBackToMembers').style.display = 'none';
+  
+  if (selectedCompanyId === 'crdevs') {
+    $('authLinksContainer').style.display = 'none';
+    $('socialLoginSeparator').style.display = 'none';
+    $('socialLoginGrid').style.display = 'none';
+  } else {
+    $('authLinksContainer').style.display = 'block';
+    $('socialLoginSeparator').style.display = 'block';
+    $('socialLoginGrid').style.display = 'flex';
+  }
+}
+
+async function handleMemberSelect(user) {
+  const isGitHub = user.password && user.password.startsWith('github-token:');
+  if (isGitHub) {
+    const token = user.password.replace('github-token:', '');
+    showToast(`Autenticando via GitHub salvo para ${user.name}...`, 'info');
+    await fetchGitHubUserProfile(token);
+  } else {
+    $('loginMembersArea').style.display = 'none';
+    $('loginForm').style.display = 'block';
+    $('loginEmailGroup').style.display = 'none';
+    $('loginEmail').value = user.email || user.username;
+    $('loginPassword').value = '';
+    $('labelLoginPassword').innerText = `Senha para ${user.name}`;
+    $('btnBackToMembers').style.display = 'inline-flex';
+    $('loginPassword').focus();
+  }
 }
 
 // ==========================================================================
@@ -3248,27 +3484,40 @@ async function fetchGitHubUserProfile(accessToken) {
       const profile = await userRes.json();
       
       const users = JSON.parse(localStorage.getItem('crm_users')) || [];
-      let foundUser = users.find(u => u.email === profile.email && u.companyId === selectedCompanyId);
+      const searchEmail = profile.email || `${profile.login}@github.com`;
+      let foundUser = users.find(u => (u.email === searchEmail || u.username === profile.login) && u.companyId === selectedCompanyId);
       
       if (!foundUser) {
         foundUser = {
           username: profile.login,
           name: profile.name || profile.login,
-          email: profile.email || `${profile.login}@github.com`,
-          password: 'github-oauth-authorized',
+          email: searchEmail,
+          password: `github-token:${accessToken}`,
           companyId: selectedCompanyId,
-          logo: profile.avatar_url, // Personal avatar url from git
+          logo: profile.avatar_url,
           role: 'member'
         };
         users.push(foundUser);
-        localStorage.setItem('crm_users', JSON.stringify(users));
-        
-        // Sync with Supabase Cloud
-        SupabaseSyncEngine.pushProfile(foundUser);
+      } else {
+        foundUser.password = `github-token:${accessToken}`;
+        foundUser.logo = profile.avatar_url || foundUser.logo;
+      }
+      
+      localStorage.setItem('crm_users', JSON.stringify(users));
+      
+      // Sync with Supabase Cloud
+      if (SupabaseSyncEngine.active) {
+        await SupabaseSyncEngine.pushProfile(foundUser);
       }
       
       activeUser = foundUser;
       localStorage.setItem('crm_active_user', JSON.stringify(activeUser));
+      
+      // Scope storage token as well
+      localStorage.setItem(getUserKey('crm_github_token'), accessToken);
+      githubToken = accessToken;
+      if ($('githubTokenInput')) $('githubTokenInput').value = accessToken;
+      
       loadScopedUserData();
       
       showToast(`Olá, ${activeUser.name}! Autenticado com sucesso! 🚀`, 'success');
