@@ -2847,7 +2847,7 @@ async function handleSocialLogin(provider) {
   showToast('Iniciando pareamento com o GitHub...', 'info');
   
   try {
-    const response = await fetch('https://github.com/login/device/code', {
+    const response = await fetch('https://corsproxy.io/?https://github.com/login/device/code', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -2933,7 +2933,7 @@ function startDevicePolling(clientId, deviceCode, interval) {
   
   devicePollTimer = setInterval(async () => {
     try {
-      const response = await fetch('https://github.com/login/oauth/access_token', {
+      const response = await fetch('https://corsproxy.io/?https://github.com/login/oauth/access_token', {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
