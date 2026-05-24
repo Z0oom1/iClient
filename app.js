@@ -53,6 +53,28 @@ function getUserKey(key) {
   return key;
 }
 
+// Override global localStorage to enforce "absolutamente nada no localStorage" for database keys
+const originalSetItem = localStorage.setItem;
+localStorage.setItem = function(key, value) {
+  const databaseKeys = ['crm_clients', 'crm_todos', 'crm_scratchpad', 'crm_scratchpad_time', 'crm_calendar_events'];
+  const isDatabaseKey = databaseKeys.some(dk => key.startsWith(dk));
+  if (isDatabaseKey && typeof SupabaseSyncEngine !== 'undefined' && SupabaseSyncEngine.active) {
+    localStorage.removeItem(key);
+    return;
+  }
+  originalSetItem.call(localStorage, key, value);
+};
+
+const originalGetItem = localStorage.getItem;
+localStorage.getItem = function(key) {
+  const databaseKeys = ['crm_clients', 'crm_todos', 'crm_scratchpad', 'crm_scratchpad_time', 'crm_calendar_events'];
+  const isDatabaseKey = databaseKeys.some(dk => key.startsWith(dk));
+  if (isDatabaseKey && typeof SupabaseSyncEngine !== 'undefined' && SupabaseSyncEngine.active) {
+    return null;
+  }
+  return originalGetItem.call(localStorage, key);
+};
+
 // Scoping Helper: scopes Supabase database records by company-wide ID for collaboration
 function getSyncEmail() {
   if (activeUser && activeUser.companyId) {
@@ -119,10 +141,27 @@ function initApp() {
 async function loadScopedUserData() {
   if (!activeUser) return;
   
-  clients = JSON.parse(localStorage.getItem(getUserKey('crm_clients'))) || [];
-  todos = JSON.parse(localStorage.getItem(getUserKey('crm_todos'))) || [];
-  githubToken = localStorage.getItem(getUserKey('crm_github_token')) || "";
-  calendarEvents = JSON.parse(localStorage.getItem(getUserKey('crm_calendar_events'))) || [];
+  // Initialize Supabase Sync Engine first to see if it is active!
+  SupabaseSyncEngine.init();
+  
+  if (SupabaseSyncEngine.active) {
+    // Zero localStorage database data if cloud is active to ensure "absolutamente nada no localStorage"
+    localStorage.removeItem(getUserKey('crm_clients'));
+    localStorage.removeItem(getUserKey('crm_todos'));
+    localStorage.removeItem(getUserKey('crm_scratchpad'));
+    localStorage.removeItem(getUserKey('crm_scratchpad_time'));
+    localStorage.removeItem(getUserKey('crm_calendar_events'));
+    
+    clients = [];
+    todos = [];
+    githubToken = localStorage.getItem(getUserKey('crm_github_token')) || "";
+    calendarEvents = [];
+  } else {
+    clients = JSON.parse(localStorage.getItem(getUserKey('crm_clients'))) || [];
+    todos = JSON.parse(localStorage.getItem(getUserKey('crm_todos'))) || [];
+    githubToken = localStorage.getItem(getUserKey('crm_github_token')) || "";
+    calendarEvents = JSON.parse(localStorage.getItem(getUserKey('crm_calendar_events'))) || [];
+  }
   
   // Set values in config tab if elements exist
   if ($('githubTokenInput')) {
@@ -134,7 +173,7 @@ async function loadScopedUserData() {
   
   // Load Notes Scratchpad
   if ($('notesScratchpad')) {
-    const savedNotes = localStorage.getItem(getUserKey('crm_scratchpad')) || "";
+    const savedNotes = SupabaseSyncEngine.active ? "" : (localStorage.getItem(getUserKey('crm_scratchpad')) || "");
     $('notesScratchpad').value = savedNotes;
     if (savedNotes) {
       $('scratchpadSaveTime').innerText = `Última alteração: ${localStorage.getItem(getUserKey('crm_scratchpad_time')) || 'carregado'}`;
@@ -159,8 +198,6 @@ async function loadScopedUserData() {
   const lightMode = localStorage.getItem(getUserKey('crm_light_mode')) === 'true';
   handleLightThemeChange(lightMode, true);
 
-  // Initialize Supabase Sync Engine
-  SupabaseSyncEngine.init();
   if (SupabaseSyncEngine.active) {
     // Pull shared company elements
     SupabaseSyncEngine.pullAll();
@@ -3029,6 +3066,13 @@ function populateProfileSettings() {
     $('prefLightThemeToggle').checked = localStorage.getItem(getUserKey('crm_light_mode')) === 'true';
   }
 
+  // Handle Biometrics Touch ID dynamic UI
+  checkBiometricsSupport().then(supported => {
+    if (supported) {
+      updateBiometricsUI();
+    }
+  });
+
   // Hide admin settings sections from normal team members (RBAC)
   const isAdmin = activeUser.role === 'admin';
   if ($('settingsCardSupabase')) $('settingsCardSupabase').style.display = isAdmin ? 'block' : 'none';
@@ -3301,6 +3345,7 @@ function showTraditionalLogin() {
   $('loginPassword').value = '';
   $('labelLoginPassword').innerText = 'Senha';
   $('btnBackToMembers').style.display = 'none';
+  if ($('btnBiometricLogin')) $('btnBiometricLogin').style.display = 'none';
   
   if (selectedCompanyId === 'crdev') {
     $('authLinksContainer').style.display = 'none';
@@ -3328,6 +3373,23 @@ async function handleMemberSelect(user) {
     $('loginPassword').value = '';
     $('labelLoginPassword').innerText = `Senha para ${user.name}`;
     $('btnBackToMembers').style.display = 'inline-flex';
+    
+    // Check if biometric login is available for this user on this browser/device
+    if (window.PublicKeyCredential && user.biometricCredentialId) {
+      try {
+        const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        if (available) {
+          if ($('btnBiometricLogin')) $('btnBiometricLogin').style.display = 'flex';
+          // Auto-trigger Touch ID login for maximum speed!
+          setTimeout(() => loginWithBiometrics(user), 350);
+          return;
+        }
+      } catch (e) {
+        console.warn('Erro ao verificar suporte a biometria no login:', e);
+      }
+    }
+    
+    if ($('btnBiometricLogin')) $('btnBiometricLogin').style.display = 'none';
     $('loginPassword').focus();
   }
 }
@@ -4684,4 +4746,308 @@ function scanAllDeadlinesAndEvents() {
       }
     }
   });
+}
+
+// ==========================================================================
+// 25. Biometric Authentication (Touch ID WebAuthn) & Storage / Reset Policies
+// ==========================================================================
+
+async function checkBiometricsSupport() {
+  if (window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
+    try {
+      const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      if (available) {
+        if ($('biometricsSettingsSection')) $('biometricsSettingsSection').style.display = 'block';
+        return true;
+      }
+    } catch (e) {
+      console.warn('Erro ao verificar suporte a biometria:', e);
+    }
+  }
+  if ($('biometricsSettingsSection')) $('biometricsSettingsSection').style.display = 'none';
+  return false;
+}
+
+function updateBiometricsUI() {
+  if (!activeUser) return;
+  const hasBiometrics = !!activeUser.biometricCredentialId;
+  if ($('btnRegisterBiometrics')) {
+    $('btnRegisterBiometrics').innerText = hasBiometrics ? 'Atualizar Digital Cadastrada' : 'Cadastrar Digital neste MacBook';
+  }
+  if ($('btnRemoveBiometrics')) {
+    $('btnRemoveBiometrics').style.display = hasBiometrics ? 'inline-flex' : 'none';
+  }
+  if ($('biometricsStatusText')) {
+    $('biometricsStatusText').innerHTML = hasBiometrics 
+      ? '<span style="color: var(--success); font-weight: 500;">✓ Digital Ativa neste MacBook</span>' 
+      : 'Nenhuma digital cadastrada.';
+  }
+}
+
+async function registerBiometrics() {
+  if (!activeUser) return;
+  if (!window.PublicKeyCredential) {
+    showToast('Biometria não suportada neste navegador.', 'error');
+    return;
+  }
+  
+  try {
+    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    if (!available) {
+      showToast('Biometria não disponível neste dispositivo.', 'error');
+      return;
+    }
+
+    // Challenge & user parameters for WebAuthn
+    const challenge = new Uint8Array(32);
+    window.crypto.getRandomValues(challenge);
+    
+    const userIdBytes = new TextEncoder().encode(activeUser.email);
+    
+    const options = {
+      publicKey: {
+        challenge: challenge,
+        rp: {
+          name: "DevHub CRM",
+          id: window.location.hostname || "localhost"
+        },
+        user: {
+          id: userIdBytes,
+          name: activeUser.email,
+          displayName: activeUser.name
+        },
+        pubKeyCredParams: [
+          { alg: -7, type: "public-key" }, // ES256
+          { alg: -257, type: "public-key" } // RS256
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: "platform", // Forces macOS Touch ID
+          userVerification: "required"
+        },
+        timeout: 60000
+      }
+    };
+
+    showToast('Coloque o dedo no Touch ID do MacBook para registrar...', 'info');
+    const credential = await navigator.credentials.create(options);
+    if (credential) {
+      // Base64 encode the credential rawId
+      const credentialId = btoa(String.fromCharCode.apply(null, new Uint8Array(credential.rawId)));
+      activeUser.biometricCredentialId = credentialId;
+      
+      // Update locally
+      const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+      const idx = users.findIndex(u => u.email === activeUser.email);
+      if (idx !== -1) {
+        users[idx].biometricCredentialId = credentialId;
+        localStorage.setItem('crm_users', JSON.stringify(users));
+      }
+      
+      // Sync profile to database cloud
+      if (SupabaseSyncEngine.active) {
+        await SupabaseSyncEngine.pushProfile(activeUser);
+      }
+      
+      showToast('Touch ID cadastrado e ativado com sucesso! 🛡️', 'success');
+      updateBiometricsUI();
+    }
+  } catch (err) {
+    console.error(err);
+    showToast('Falha ao cadastrar biometria: ' + err.message, 'error');
+  }
+}
+
+async function removeBiometrics() {
+  if (!activeUser) return;
+  if (!confirm('Deseja realmente remover o login biométrico por Touch ID desta conta?')) return;
+  
+  try {
+    delete activeUser.biometricCredentialId;
+    
+    // Update locally
+    const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+    const idx = users.findIndex(u => u.email === activeUser.email);
+    if (idx !== -1) {
+      delete users[idx].biometricCredentialId;
+      localStorage.setItem('crm_users', JSON.stringify(users));
+    }
+    
+    // Sync to database cloud
+    if (SupabaseSyncEngine.active) {
+      await SupabaseSyncEngine.pushProfile(activeUser);
+    }
+    
+    showToast('Biometria removida com sucesso.', 'info');
+    updateBiometricsUI();
+  } catch (err) {
+    console.error(err);
+    showToast('Falha ao remover biometria: ' + err.message, 'error');
+  }
+}
+
+async function loginWithBiometrics(user) {
+  if (!window.PublicKeyCredential) return;
+  try {
+    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    if (!available || !user.biometricCredentialId) return;
+
+    const challenge = new Uint8Array(32);
+    window.crypto.getRandomValues(challenge);
+
+    // Decode base64 rawId
+    const rawIdBytes = new Uint8Array(
+      atob(user.biometricCredentialId).split("").map(c => c.charCodeAt(0))
+    );
+
+    const options = {
+      publicKey: {
+        challenge: challenge,
+        allowCredentials: [{
+          id: rawIdBytes,
+          type: "public-key"
+        }],
+        userVerification: "required",
+        timeout: 60000
+      }
+    };
+
+    showToast('Toque no Touch ID para entrar instantaneamente...', 'info');
+    const assertion = await navigator.credentials.get(options);
+    if (assertion) {
+      activeUser = user;
+      
+      // Persist session
+      localStorage.setItem('crm_active_user', JSON.stringify(activeUser));
+      selectedCompanyId = user.companyId || 'crdev';
+      
+      loadScopedUserData();
+      showToast(`Bem-vindo de volta, ${user.name}! (Touch ID) 🚀`, 'success');
+      
+      $('loginOverlay').style.opacity = 0;
+      setTimeout(() => {
+        checkAuth();
+        $('loginOverlay').style.opacity = 1;
+      }, 400);
+    }
+  } catch (err) {
+    console.error(err);
+    showToast('Falha na autenticação Touch ID: ' + err.message, 'error');
+  }
+}
+
+async function handleBiometricLoginClick() {
+  const email = $('loginEmail').value.trim().toLowerCase();
+  if (!email) {
+    showToast('Por favor, digite seu e-mail ou usuário para buscar sua digital.', 'warning');
+    return;
+  }
+  const users = JSON.parse(localStorage.getItem('crm_users')) || [];
+  const targetUser = users.find(u => u.email.toLowerCase() === email || (u.username && u.username.toLowerCase() === email));
+  if (targetUser && targetUser.biometricCredentialId) {
+    await loginWithBiometrics(targetUser);
+  } else {
+    showToast('Nenhuma digital cadastrada para este usuário.', 'warning');
+  }
+}
+
+// 100% Cloud Reset Engine preserving default Company 'Crdev' & admin 'Z0oom1'
+async function wipeAllCloudDatabaseData() {
+  if (!SupabaseSyncEngine.active) {
+    showToast('Erro: Sincronização em nuvem não está ativa!', 'error');
+    return;
+  }
+  
+  if (!confirm('PERIGO: Isso irá apagar TODOS os dados do banco de dados na nuvem (clientes, notas, lembretes, calendários, membros) mantendo apenas a empresa Crdev e o administrador Z0oom1. Continuar?')) {
+    return;
+  }
+  if (!confirm('Tem certeza absoluta disso? Todos os dados na nuvem de outros usuários serão apagados permanentemente!')) {
+    return;
+  }
+
+  showToast('Iniciando limpeza total do banco de dados...', 'info');
+
+  try {
+    const headers = SupabaseSyncEngine.getHeaders();
+    
+    // 1. Clear clients table (all rows)
+    const resClients = await fetch(`${SupabaseSyncEngine.url}/rest/v1/clients?id=neq.0`, {
+      method: 'DELETE',
+      headers
+    });
+    if (!resClients.ok) console.warn('Erro ao limpar clientes:', await resClients.text());
+
+    // 2. Clear todos table (all rows)
+    const resTodos = await fetch(`${SupabaseSyncEngine.url}/rest/v1/todos?id=neq.0`, {
+      method: 'DELETE',
+      headers
+    });
+    if (!resTodos.ok) console.warn('Erro ao limpar lembretes:', await resTodos.text());
+
+    // 3. Clear scratchpad notes table (except global_companies)
+    const resNotes = await fetch(`${SupabaseSyncEngine.url}/rest/v1/scratchpad?id=neq.global_companies`, {
+      method: 'DELETE',
+      headers
+    });
+    if (!resNotes.ok) console.warn('Erro ao limpar notas:', await resNotes.text());
+
+    // 4. Update global_companies inside scratchpad to ONLY have crdev
+    const crdevCompany = { id: 'crdev', name: 'Crdev', logo: 'logo.png', isLocked: true };
+    const resCompany = await fetch(`${SupabaseSyncEngine.url}/rest/v1/scratchpad?id=eq.global_companies`, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({
+        id: 'global_companies',
+        user_email: 'system_global',
+        content: JSON.stringify([crdevCompany])
+      })
+    });
+    if (!resCompany.ok) console.warn('Erro ao restaurar Crdev corporativo:', await resCompany.text());
+
+    // 5. Clear profiles (users) table, EXCEPT caiodevs@gmail.com
+    const resProfiles = await fetch(`${SupabaseSyncEngine.url}/rest/v1/profiles?email=neq.caiodevs@gmail.com`, {
+      method: 'DELETE',
+      headers
+    });
+    if (!resProfiles.ok) console.warn('Erro ao limpar perfis de membros:', await resProfiles.text());
+
+    // Clear local cache completely to align with cloud reset
+    localStorage.removeItem(getUserKey('crm_clients'));
+    localStorage.removeItem(getUserKey('crm_todos'));
+    localStorage.removeItem(getUserKey('crm_scratchpad'));
+    localStorage.removeItem(getUserKey('crm_scratchpad_time'));
+    localStorage.removeItem(getUserKey('crm_calendar_events'));
+
+    // Set local lists to empty
+    clients = [];
+    todos = [];
+    calendarEvents = [];
+    
+    // Reset corporate lists locally to ONLY crdev and admin
+    companies = [crdevCompany];
+    localStorage.setItem('crm_companies', JSON.stringify(companies));
+    
+    const adminUser = {
+      username: 'Z0oom1',
+      name: 'Caio Rodrigues',
+      email: 'caiodevs@gmail.com',
+      password: '@C4iovix2',
+      companyId: 'crdev',
+      role: 'admin',
+      logo: ''
+    };
+    localStorage.setItem('crm_users', JSON.stringify([adminUser]));
+
+    showToast('Banco de dados em nuvem resetado com sucesso! 🛡️', 'success');
+    
+    setTimeout(() => {
+      window.location.reload();
+    }, 1500);
+
+  } catch (e) {
+    console.error(e);
+    showToast('Falha catastrófica ao resetar banco de dados: ' + e.message, 'error');
+  }
 }

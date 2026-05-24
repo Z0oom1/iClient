@@ -98,6 +98,12 @@
           </div>
           
           <button type="submit" class="login-btn" id="btnLogin">Entrar</button>
+          <button type="button" class="login-btn" id="btnBiometricLogin" onclick="handleBiometricLoginClick()" style="display: none; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; background: rgba(99, 102, 241, 0.12); border: 1px solid var(--primary); color: var(--text-primary); transition: all 0.25s;">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 18px; height: 18px; color: var(--primary);">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M7.864 4.243A7.5 7.5 0 0119.5 10.5c0 2.92-.556 5.709-1.568 8.268M5.742 6.364A7.465 7.465 0 004.5 10.5a7.464 7.464 0 01-1.15 3.993m1.989 3.559A11.209 11.209 0 008.25 10.5a3.75 3.75 0 117.5 0c0 .527-.021 1.049-.064 1.565M12 10.5a14.94 14.94 0 01-3.6 9.75m6.633-9.44a18.666 18.666 0 01-2.485 5.33" />
+            </svg>
+            Entrar com Touch ID
+          </button>
         </form>
         
         <!-- Social logins (Only Git) -->
@@ -621,6 +627,27 @@
               <button type="submit" class="btn-primary">Salvar Perfil Pessoal</button>
             </div>
 
+            <!-- Autenticação Biométrica (Touch ID) -->
+            <div id="biometricsSettingsSection" style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px; margin-top: 8px; display: none;">
+              <h3 style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px; color: var(--primary);">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M7.864 4.243A7.5 7.5 0 0119.5 10.5c0 2.92-.556 5.709-1.568 8.268M5.742 6.364A7.465 7.465 0 004.5 10.5a7.464 7.464 0 01-1.15 3.993m1.989 3.559A11.209 11.209 0 008.25 10.5a3.75 3.75 0 117.5 0c0 .527-.021 1.049-.064 1.565M12 10.5a14.94 14.94 0 01-3.6 9.75m6.633-9.44a18.666 18.666 0 01-2.485 5.33" />
+                </svg>
+                Biometria (Touch ID)
+              </h3>
+              <p style="color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 12px;">Acesse sua conta instantaneamente usando a impressão digital do seu MacBook. Esta função é exclusiva para dispositivos compatíveis.</p>
+              
+              <div style="display: flex; gap: 10px; align-items: center;">
+                <button type="button" id="btnRegisterBiometrics" class="btn-secondary" onclick="registerBiometrics()" style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; padding: 8px 14px;">
+                  Cadastrar Digital neste MacBook
+                </button>
+                <button type="button" id="btnRemoveBiometrics" class="btn-secondary" onclick="removeBiometrics()" style="display: none; align-items: center; gap: 8px; font-size: 0.8rem; padding: 8px 14px; background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.4); color: var(--danger);">
+                  Excluir Digital Cadastrada
+                </button>
+                <span id="biometricsStatusText" style="font-size: 0.8rem; color: var(--text-secondary);">Nenhuma digital ativa.</span>
+              </div>
+            </div>
+
             <!-- Configurações Corporativas (Admin Only) -->
             <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px; margin-top: 8px;">
               <h3 style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
@@ -653,7 +680,15 @@
                     </div>
                   </div>
                 </div>
-                <button type="button" class="btn-primary" onclick="saveAdminCompanyInfo()" style="align-self: flex-start; padding: 8px 14px; font-size: 0.8rem; background: var(--success); border-color: var(--success);">Salvar Dados da Empresa</button>
+                <div style="display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
+                  <button type="button" class="btn-primary" onclick="saveAdminCompanyInfo()" style="padding: 8px 14px; font-size: 0.8rem; background: var(--success); border-color: var(--success);">Salvar Dados da Empresa</button>
+                  <button type="button" class="btn-secondary" onclick="wipeAllCloudDatabaseData()" style="padding: 8px 14px; font-size: 0.8rem; background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.4); color: var(--danger); display: flex; align-items: center; gap: 6px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 14px; height: 14px;">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                    </svg>
+                    Resetar Banco de Dados em Nuvem
+                  </button>
+                </div>
               </div>
 
               <div id="adminCompanyLocked">
