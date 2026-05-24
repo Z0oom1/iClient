@@ -3383,6 +3383,26 @@ async function initCompaniesAndUsersSeed() {
   // Ensure Supabase connection is initialized so we can read from it
   SupabaseSyncEngine.init();
   
+  const isSessionActive = !!localStorage.getItem('crm_active_user');
+  
+  // 1. Fast Start: Load cached companies immediately so they are visible behind the loader
+  const localCompanies = localStorage.getItem('crm_companies');
+  let parsedCompanies = [];
+  try {
+    parsedCompanies = JSON.parse(localCompanies) || [];
+  } catch (e) {}
+
+  companies = parsedCompanies.filter(c => c.id !== 'crdevs' && c.id !== 'google');
+  if (!companies.some(c => c.id === 'crdev')) {
+    companies.unshift({ id: 'crdev', name: 'Crdev', logo: 'logo.png', isLocked: true });
+  }
+  localStorage.setItem('crm_companies', JSON.stringify(companies));
+  
+  if (!isSessionActive) {
+    renderCompanyPortal();
+  }
+  
+  // 2. Show loader on top of the companies portal
   const showLoader = SupabaseSyncEngine.active;
   if (showLoader) {
     showDbSyncLoader('Conectando ao Banco de Dados', 'Carregando lista de empresas e perfis...');
@@ -3399,6 +3419,22 @@ async function initCompaniesAndUsersSeed() {
       ]);
     }
   } finally {
+    // 3. Update companies list from cloud data and re-render
+    const latestLocalCompanies = localStorage.getItem('crm_companies');
+    let latestParsed = [];
+    try {
+      latestParsed = JSON.parse(latestLocalCompanies) || [];
+    } catch(e) {}
+    companies = latestParsed.filter(c => c.id !== 'crdevs' && c.id !== 'google');
+    if (!companies.some(c => c.id === 'crdev')) {
+      companies.unshift({ id: 'crdev', name: 'Crdev', logo: 'logo.png', isLocked: true });
+    }
+    localStorage.setItem('crm_companies', JSON.stringify(companies));
+    
+    if (!isSessionActive) {
+      renderCompanyPortal();
+    }
+    
     if (showLoader) {
       const elapsed = Date.now() - startTime;
       const remaining = 4000 - elapsed;
@@ -3408,20 +3444,6 @@ async function initCompaniesAndUsersSeed() {
       hideDbSyncLoader();
     }
   }
-
-  // Load and sanitize companies list (always filter legacy, always ensure crdev exists)
-  const localCompanies = localStorage.getItem('crm_companies');
-  let parsedCompanies = [];
-  try {
-    parsedCompanies = JSON.parse(localCompanies) || [];
-  } catch (e) {}
-
-  companies = parsedCompanies.filter(c => c.id !== 'crdevs' && c.id !== 'google');
-  
-  if (!companies.some(c => c.id === 'crdev')) {
-    companies.unshift({ id: 'crdev', name: 'Crdev', logo: 'logo.png', isLocked: true });
-  }
-  localStorage.setItem('crm_companies', JSON.stringify(companies));
 
   // Load and sanitize users list (always filter legacy, always ensure admin Z0oom1 exists under crdev)
   let usersList = [];
