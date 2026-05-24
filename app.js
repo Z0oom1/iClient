@@ -3383,12 +3383,23 @@ async function initCompaniesAndUsersSeed() {
   // Ensure Supabase connection is initialized so we can read from it
   SupabaseSyncEngine.init();
   
-  if (SupabaseSyncEngine.active) {
-    // Pull companies and profiles in parallel
-    await Promise.all([
-      SupabaseSyncEngine.pullCompanies(),
-      SupabaseSyncEngine.pullAllProfiles()
-    ]);
+  const showLoader = SupabaseSyncEngine.active;
+  if (showLoader) {
+    showDbSyncLoader('Conectando ao Supabase', 'Carregando lista de empresas e perfis...');
+  }
+  
+  try {
+    if (SupabaseSyncEngine.active) {
+      // Pull companies and profiles in parallel
+      await Promise.all([
+        SupabaseSyncEngine.pullCompanies(),
+        SupabaseSyncEngine.pullAllProfiles()
+      ]);
+    }
+  } finally {
+    if (showLoader) {
+      hideDbSyncLoader();
+    }
   }
 
   // Load and sanitize companies list (always filter legacy, always ensure crdev exists)
