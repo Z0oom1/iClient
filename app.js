@@ -384,6 +384,22 @@ async function handleLogin() {
         SupabaseSyncEngine.pushProfile(admin);
       }
     }
+    
+    // Check if biometric login is active for this admin on this browser/device
+    if (window.PublicKeyCredential && admin.biometricCredentialId) {
+      try {
+        const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        if (available) {
+          // Trigger biometric verification to complete the login
+          await loginWithBiometrics(admin);
+          return; // loginWithBiometrics will log in on success
+        }
+      } catch (e) {
+        console.warn('Erro na verificação de Touch ID:', e);
+      }
+    }
+    
+    // If biometrics not registered or not supported/available on this device, fall back to password
     foundUser = admin;
   }
 
@@ -2159,14 +2175,8 @@ const SupabaseSyncEngine = {
             // Filter out old legacy locked companies
             cloudCompanies = cloudCompanies.filter(c => c.id !== 'crdevs' && c.id !== 'google');
             
-            const localCompanies = JSON.parse(localStorage.getItem('crm_companies')) || [];
-            const companyMap = new Map();
-            localCompanies.forEach(c => {
-              if (c.id !== 'crdevs' && c.id !== 'google') companyMap.set(c.id, c);
-            });
-            cloudCompanies.forEach(c => companyMap.set(c.id, c));
-            
-            companies = Array.from(companyMap.values());
+            // Cloud is single source of truth - no merge loop!
+            companies = cloudCompanies;
             localStorage.setItem('crm_companies', JSON.stringify(companies));
           }
         }
@@ -3299,6 +3309,7 @@ function showMembersGrid() {
   $('loginMembersArea').style.display = 'block';
   $('loginForm').style.display = 'none';
   $('btnBackToMembers').style.display = 'none';
+  if ($('activeProfileHeader')) $('activeProfileHeader').style.display = 'none';
   
   const grid = $('loginMembersGrid');
   grid.innerHTML = '';
@@ -3346,6 +3357,7 @@ function showTraditionalLogin() {
   $('labelLoginPassword').innerText = 'Senha';
   $('btnBackToMembers').style.display = 'none';
   if ($('btnBiometricLogin')) $('btnBiometricLogin').style.display = 'none';
+  if ($('activeProfileHeader')) $('activeProfileHeader').style.display = 'none';
   
   if (selectedCompanyId === 'crdev') {
     $('authLinksContainer').style.display = 'none';
@@ -3360,6 +3372,14 @@ function showTraditionalLogin() {
 }
 
 async function handleMemberSelect(user) {
+  // Show active profile card with photo and name elegantly
+  if ($('activeProfileHeader')) {
+    $('activeProfileHeader').style.display = 'flex';
+    $('activeProfileAvatar').src = user.logo || 'logo.png';
+    $('activeProfileName').innerText = user.name;
+    $('activeProfileEmail').innerText = user.email || user.username;
+  }
+
   const isGitHub = user.password && user.password.startsWith('github-token:');
   if (isGitHub) {
     const token = user.password.replace('github-token:', '');
@@ -3371,11 +3391,11 @@ async function handleMemberSelect(user) {
     $('loginEmailGroup').style.display = 'none';
     $('loginEmail').value = user.email || user.username;
     $('loginPassword').value = '';
-    $('labelLoginPassword').innerText = `Senha para ${user.name}`;
+    $('labelLoginPassword').innerText = `Senha`;
     $('btnBackToMembers').style.display = 'inline-flex';
     
-    // Check if biometric login is available for this user on this browser/device
-    if (window.PublicKeyCredential && user.biometricCredentialId) {
+    // Check if biometric login is available and active ONLY for the crdev company!
+    if (selectedCompanyId === 'crdev' && window.PublicKeyCredential && user.biometricCredentialId) {
       try {
         const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
         if (available) {
@@ -4753,6 +4773,11 @@ function scanAllDeadlinesAndEvents() {
 // ==========================================================================
 
 async function checkBiometricsSupport() {
+  if (!activeUser || activeUser.companyId !== 'crdev') {
+    if ($('biometricsSettingsSection')) $('biometricsSettingsSection').style.display = 'none';
+    return false;
+  }
+  
   if (window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
     try {
       const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
@@ -4786,6 +4811,10 @@ function updateBiometricsUI() {
 
 async function registerBiometrics() {
   if (!activeUser) return;
+  if (activeUser.companyId !== 'crdev') {
+    showToast('Biometria disponível apenas para a conta Crdev.', 'warning');
+    return;
+  }
   if (!window.PublicKeyCredential) {
     showToast('Biometria não suportada neste navegador.', 'error');
     return;
@@ -4990,9 +5019,14 @@ async function wipeAllCloudDatabaseData() {
     });
     if (!resNotes.ok) console.warn('Erro ao limpar notas:', await resNotes.text());
 
-    // 4. Update global_companies inside scratchpad to ONLY have crdev
+    // 4. Delete and restore global_companies inside scratchpad to ONLY have crdev
+    await fetch(`${SupabaseSyncEngine.url}/rest/v1/scratchpad?id=eq.global_companies`, {
+      method: 'DELETE',
+      headers
+    });
+    
     const crdevCompany = { id: 'crdev', name: 'Crdev', logo: 'logo.png', isLocked: true };
-    const resCompany = await fetch(`${SupabaseSyncEngine.url}/rest/v1/scratchpad?id=eq.global_companies`, {
+    const resCompany = await fetch(`${SupabaseSyncEngine.url}/rest/v1/scratchpad`, {
       method: 'POST',
       headers: {
         ...headers,
