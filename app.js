@@ -3322,10 +3322,10 @@ function showMembersGrid() {
     // Determine avatar
     let avatarHtml = '';
     if (user.logo) {
-      avatarHtml = `<img src="${user.logo}" alt="${user.name}">`;
+      avatarHtml = `<img src="${user.logo}" alt="${user.name}" class="member-avatar">`;
     } else {
       const initials = getInitials(user.name);
-      avatarHtml = `<div class="member-initials">${initials}</div>`;
+      avatarHtml = `<div class="member-avatar-initials">${initials}</div>`;
     }
     
     const isGitHub = user.password && user.password.startsWith('github-token:');
@@ -3375,7 +3375,17 @@ async function handleMemberSelect(user) {
   // Show active profile card with photo and name elegantly
   if ($('activeProfileHeader')) {
     $('activeProfileHeader').style.display = 'flex';
-    $('activeProfileAvatar').src = user.logo || 'logo.png';
+    
+    const avatarEl = $('activeProfileAvatar');
+    if (avatarEl) {
+      if (user.logo) {
+        avatarEl.outerHTML = `<img id="activeProfileAvatar" src="${user.logo}" style="width: 60px; height: 60px; border-radius: 50%; object-fit: cover; border: 2.5px solid var(--primary); box-shadow: 0 4px 12px rgba(0,0,0,0.3); margin-bottom: 8px;">`;
+      } else {
+        const initials = getInitials(user.name);
+        avatarEl.outerHTML = `<div id="activeProfileAvatar" class="member-avatar-initials" style="width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; font-weight: 800; color: #ffffff; background: linear-gradient(135deg, var(--primary), var(--secondary)); box-shadow: 0 4px 12px rgba(0,0,0,0.3); margin: 0 auto 8px;">${initials}</div>`;
+      }
+    }
+    
     $('activeProfileName').innerText = user.name;
     $('activeProfileEmail').innerText = user.email || user.username;
   }
