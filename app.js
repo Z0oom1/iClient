@@ -2604,7 +2604,7 @@ async function connectSupabaseCloud() {
     return;
   }
 
-  showDbSyncLoader('Conectando ao Supabase', 'Verificando credenciais e testando conexão...');
+  showDbSyncLoader('Conectando ao Banco de Dados', 'Verificando credenciais e testando conexão...');
 
   try {
     const isConnected = await SupabaseSyncEngine.testConnection(url, key);
@@ -3385,8 +3385,10 @@ async function initCompaniesAndUsersSeed() {
   
   const showLoader = SupabaseSyncEngine.active;
   if (showLoader) {
-    showDbSyncLoader('Conectando ao Supabase', 'Carregando lista de empresas e perfis...');
+    showDbSyncLoader('Conectando ao Banco de Dados', 'Carregando lista de empresas e perfis...');
   }
+  
+  const startTime = Date.now();
   
   try {
     if (SupabaseSyncEngine.active) {
@@ -3398,6 +3400,11 @@ async function initCompaniesAndUsersSeed() {
     }
   } finally {
     if (showLoader) {
+      const elapsed = Date.now() - startTime;
+      const remaining = 4000 - elapsed;
+      if (remaining > 0) {
+        await new Promise(resolve => setTimeout(resolve, remaining));
+      }
       hideDbSyncLoader();
     }
   }
