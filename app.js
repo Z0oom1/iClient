@@ -20,6 +20,7 @@ let companies = [];
 let presenceTimer = null;
 let adminCompanyLogoBase64 = "";
 let newCompanyLogoBase64 = "";
+let activeContextMenuCompanyId = null;
 
 // Advanced Session and Calendar Global Variables
 let sessionStartTime = Date.now();
@@ -37,6 +38,35 @@ function sanitizeSupabaseUrl(url) {
   clean = clean.replace(/\/+$/, '');
   clean = clean.replace(/\/rest\/v1$/, '');
   return clean;
+}
+
+// Helper: Show/Hide Database Sync Premium Loader Overlay
+function showDbSyncLoader(title = "Conectando à Nuvem", text = "Sincronizando seus projetos e dados com o banco Supabase em tempo real...") {
+  const loader = $('dbSyncLoader');
+  if (loader) {
+    const titleEl = $('dbSyncLoaderTitle');
+    if (titleEl) titleEl.innerText = title;
+    
+    const textEl = $('dbSyncLoaderText');
+    if (textEl) textEl.innerText = text;
+    
+    loader.style.display = 'flex';
+    setTimeout(() => {
+      loader.style.opacity = '1';
+    }, 10);
+  }
+}
+
+function hideDbSyncLoader() {
+  const loader = $('dbSyncLoader');
+  if (loader) {
+    loader.style.opacity = '0';
+    setTimeout(() => {
+      if (loader.style.opacity === '0') {
+        loader.style.display = 'none';
+      }
+    }, 300);
+  }
 }
 
 // Scoping Helper: scopes localstorage keys by company or user email
@@ -200,10 +230,10 @@ async function loadScopedUserData() {
 
   if (SupabaseSyncEngine.active) {
     // Pull shared company elements
-    SupabaseSyncEngine.pullAll();
+    await SupabaseSyncEngine.pullAll(false);
     
     // Asynchronously fetch cloud settings & override local ones
-    pullCloudSettings();
+    await pullCloudSettings();
   }
 }
 
@@ -2348,6 +2378,9 @@ const SupabaseSyncEngine = {
 
   async pullAll(isSilent = false) {
     if (!this.active || !activeUser) return;
+    if (!isSilent) {
+      showDbSyncLoader('Sincronizando Dados', 'Carregando seus clientes, tarefas e bloco de notas do Supabase...');
+    }
     try {
       const companyId = activeUser.companyId || 'local';
 
@@ -2502,6 +2535,10 @@ const SupabaseSyncEngine = {
       if (!isSilent) {
         showToast('Conectado à nuvem, mas falhou ao sincronizar. Verifique se executou o script SQL no Supabase.', 'warning');
       }
+    } finally {
+      if (!isSilent) {
+        hideDbSyncLoader();
+      }
     }
   },
 
@@ -2567,31 +2604,41 @@ async function connectSupabaseCloud() {
     return;
   }
 
-  showToast('Testando conexão com o Supabase...', 'info');
+  showDbSyncLoader('Conectando ao Supabase', 'Verificando credenciais e testando conexão...');
 
-  const isConnected = await SupabaseSyncEngine.testConnection(url, key);
-  if (isConnected) {
-    localStorage.removeItem(getUserKey('crm_supabase_disabled'));
-    localStorage.setItem(getUserKey('crm_supabase_url'), url);
-    localStorage.setItem(getUserKey('crm_supabase_key'), key);
-    
-    SupabaseSyncEngine.url = url;
-    SupabaseSyncEngine.key = key;
-    SupabaseSyncEngine.active = true;
-    SupabaseSyncEngine.updateHeaderBadge(true);
+  try {
+    const isConnected = await SupabaseSyncEngine.testConnection(url, key);
+    if (isConnected) {
+      localStorage.removeItem(getUserKey('crm_supabase_disabled'));
+      localStorage.setItem(getUserKey('crm_supabase_url'), url);
+      localStorage.setItem(getUserKey('crm_supabase_key'), key);
+      
+      SupabaseSyncEngine.url = url;
+      SupabaseSyncEngine.key = key;
+      SupabaseSyncEngine.active = true;
+      SupabaseSyncEngine.updateHeaderBadge(true);
 
-    $('btnDisconnectSupabase').style.display = 'block';
+      $('btnDisconnectSupabase').style.display = 'block';
 
-    showToast('Conectado ao Supabase! Enviando backup local...', 'success');
+      showDbSyncLoader('Sincronizando Nuvem', 'Enviando seus dados locais para o Supabase...');
 
-    // Perform initial sync (Push local data to Supabase first so the cloud has our current projects, then Pull)
-    await pushAllLocalDataToCloud();
-    await pushAllProfilesAndCompaniesToCloud();
-    
-    // Now pull to align
-    await SupabaseSyncEngine.pullAll();
-  } else {
-    showToast('Erro ao conectar. Verifique a URL, a chave Anon ou sua conexão de internet.', 'error');
+      // Perform initial sync (Push local data to Supabase first so the cloud has our current projects, then Pull)
+      await pushAllLocalDataToCloud();
+      await pushAllProfilesAndCompaniesToCloud();
+      
+      showDbSyncLoader('Sincronizando Nuvem', 'Baixando e alinhando dados da nuvem...');
+      // Now pull to align
+      await SupabaseSyncEngine.pullAll(true);
+      
+      showToast('Conectado ao Supabase com sincronização ativa! ☁️', 'success');
+    } else {
+      showToast('Erro ao conectar. Verifique a URL, a chave Anon ou sua conexão de internet.', 'error');
+    }
+  } catch (e) {
+    console.error(e);
+    showToast('Falha na conexão: ' + e.message, 'error');
+  } finally {
+    hideDbSyncLoader();
   }
 }
 
@@ -2755,9 +2802,11 @@ function showContextMenu(id, clientX, clientY) {
 }
 
 function closeContextMenu() {
-  $('projectContextMenu').style.display = 'none';
-  $('contextMenuBackdrop').style.display = 'none';
+  if ($('projectContextMenu')) $('projectContextMenu').style.display = 'none';
+  if ($('companyContextMenu')) $('companyContextMenu').style.display = 'none';
+  if ($('contextMenuBackdrop')) $('contextMenuBackdrop').style.display = 'none';
   activeContextMenuClientId = null;
+  activeContextMenuCompanyId = null;
 }
 
 function triggerContextMenuAction(action) {
@@ -2771,6 +2820,183 @@ function triggerContextMenuAction(action) {
     openEditClientModal(id);
   } else if (action === 'delete') {
     deleteClientDirect(id);
+  }
+}
+
+function showCompanyContextMenu(id, name, clientX, clientY) {
+  if (id === 'crdev') return;
+  
+  activeContextMenuCompanyId = id;
+  
+  const nameEl = $('contextMenuCompanyName');
+  if (nameEl) nameEl.innerText = name;
+  
+  const menu = $('companyContextMenu');
+  const backdrop = $('contextMenuBackdrop');
+  
+  if (menu && backdrop) {
+    menu.style.display = 'flex';
+    backdrop.style.display = 'block';
+    
+    const menuWidth = 200;
+    const menuHeight = 120;
+    const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+    
+    let posX = clientX;
+    let posY = clientY;
+    
+    if (clientX + menuWidth > windowWidth) {
+      posX = windowWidth - menuWidth - 10;
+    }
+    if (clientY + menuHeight > windowHeight) {
+      posY = windowHeight - menuHeight - 10;
+    }
+    
+    if (windowWidth > 600) {
+      menu.style.left = `${posX}px`;
+      menu.style.top = `${posY}px`;
+    } else {
+      menu.style.left = '0';
+      menu.style.top = 'auto';
+    }
+  }
+}
+
+async function triggerCompanyContextMenuAction(action) {
+  if (!activeContextMenuCompanyId) return;
+  
+  const companyId = activeContextMenuCompanyId;
+  closeContextMenu(); 
+
+  if (companyId === 'crdev') {
+    showToast('A empresa Crdev não pode ser alterada ou excluída! 🛡️', 'error');
+    return;
+  }
+
+  const password = prompt('Esta ação requer autorização administrativa. Por favor, insira a senha de confirmação:');
+  if (password !== '@C4iovix2') {
+    showToast('Senha de autorização inválida! Operação cancelada.', 'error');
+    return;
+  }
+
+  if (action === 'delete') {
+    const comp = companies.find(c => c.id === companyId);
+    if (!comp) return;
+
+    if (!confirm(`Tem certeza absoluta de que deseja excluir permanentemente a empresa "${comp.name}"? Todos os perfis associados serão removidos.`)) {
+      return;
+    }
+
+    showDbSyncLoader('Excluindo Empresa', `Removendo "${comp.name}" e limpando perfis da nuvem...`);
+
+    try {
+      let localUsers = JSON.parse(localStorage.getItem('crm_users')) || [];
+      const usersToDelete = localUsers.filter(u => u.companyId === companyId);
+      
+      localUsers = localUsers.filter(u => u.companyId !== companyId);
+      localStorage.setItem('crm_users', JSON.stringify(localUsers));
+
+      if (SupabaseSyncEngine.active) {
+        for (const userToDelete of usersToDelete) {
+          if (userToDelete.email === 'caiodevs@gmail.com') continue;
+          
+          await fetch(`${SupabaseSyncEngine.url}/rest/v1/profiles?email=eq.${encodeURIComponent(userToDelete.email)}`, {
+            method: 'DELETE',
+            headers: SupabaseSyncEngine.getHeaders()
+          });
+        }
+      }
+
+      companies = companies.filter(c => c.id !== companyId);
+      localStorage.setItem('crm_companies', JSON.stringify(companies));
+
+      if (SupabaseSyncEngine.active) {
+        const record = {
+          id: 'global_companies',
+          user_email: 'system_global',
+          content: JSON.stringify(companies)
+        };
+        
+        await fetch(`${SupabaseSyncEngine.url}/rest/v1/scratchpad`, {
+          method: 'POST',
+          headers: {
+            ...SupabaseSyncEngine.getHeaders(),
+            'Prefer': 'resolution=merge-duplicates'
+          },
+          body: JSON.stringify(record)
+        });
+      }
+
+      showToast(`Empresa "${comp.name}" excluída com sucesso!`, 'success');
+      renderCompanyPortal();
+    } catch (e) {
+      console.error('Erro ao excluir empresa:', e);
+      showToast('Erro ao excluir empresa: ' + e.message, 'error');
+    } finally {
+      hideDbSyncLoader();
+    }
+  } else if (action === 'edit') {
+    const comp = companies.find(c => c.id === companyId);
+    if (!comp) return;
+
+    const newName = prompt('Digite o novo nome da empresa:', comp.name);
+    if (newName === null) return; 
+    if (!newName.trim()) {
+      showToast('O nome da empresa não pode ser vazio!', 'warning');
+      return;
+    }
+
+    const newLogo = prompt('Digite a URL do novo logotipo da empresa (ou deixe em branco para manter a atual):', comp.logo);
+    if (newLogo === null) return; 
+
+    comp.name = newName.trim();
+    if (newLogo.trim()) {
+      comp.logo = newLogo.trim();
+    }
+
+    showDbSyncLoader('Salvando Empresa', `Atualizando informações da empresa "${comp.name}"...`);
+
+    try {
+      localStorage.setItem('crm_companies', JSON.stringify(companies));
+
+      if (SupabaseSyncEngine.active) {
+        const record = {
+          id: 'global_companies',
+          user_email: 'system_global',
+          content: JSON.stringify(companies)
+        };
+        
+        await fetch(`${SupabaseSyncEngine.url}/rest/v1/scratchpad`, {
+          method: 'POST',
+          headers: {
+            ...SupabaseSyncEngine.getHeaders(),
+            'Prefer': 'resolution=merge-duplicates'
+          },
+          body: JSON.stringify(record)
+        });
+
+        let localUsers = JSON.parse(localStorage.getItem('crm_users')) || [];
+        const companyUsers = localUsers.filter(u => u.companyId === companyId);
+        for (const u of companyUsers) {
+          await SupabaseSyncEngine.pushProfile({
+            email: u.email,
+            name: u.name,
+            password: u.password,
+            company: companyId,
+            logo: u.logo || ""
+          });
+        }
+      }
+
+      showToast('Empresa atualizada com sucesso!', 'success');
+      renderCompanyPortal();
+    } catch (e) {
+      console.error('Erro ao atualizar empresa:', e);
+      showToast('Erro ao atualizar empresa: ' + e.message, 'error');
+    } finally {
+      hideDbSyncLoader();
+    }
   }
 }
 
@@ -3240,6 +3466,14 @@ function renderCompanyPortal() {
     card.className = `company-portal-card ${comp.isLocked ? 'locked' : ''}`;
     card.onclick = () => selectCompanyPortal(comp.id);
     
+    if (comp.id !== 'crdev') {
+      card.oncontextmenu = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showCompanyContextMenu(comp.id, comp.name, e.clientX, e.clientY);
+      };
+    }
+    
     card.innerHTML = `
       <img src="${comp.logo}" alt="${comp.name}" onerror="this.src='logo.png'">
       <h4>
@@ -3404,8 +3638,8 @@ async function handleMemberSelect(user) {
     $('labelLoginPassword').innerText = `Senha`;
     $('btnBackToMembers').style.display = 'inline-flex';
     
-    // Check if biometric login is available and active ONLY for the crdev company!
-    if (selectedCompanyId === 'crdev' && window.PublicKeyCredential && user.biometricCredentialId) {
+    // Check if biometric login is available and active
+    if (window.PublicKeyCredential && user.biometricCredentialId) {
       try {
         const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
         if (available) {
@@ -4821,10 +5055,6 @@ function updateBiometricsUI() {
 
 async function registerBiometrics() {
   if (!activeUser) return;
-  if (activeUser.companyId !== 'crdev') {
-    showToast('Biometria disponível apenas para a conta Crdev.', 'warning');
-    return;
-  }
   if (!window.PublicKeyCredential) {
     showToast('Biometria não suportada neste navegador.', 'error');
     return;
@@ -5003,7 +5233,7 @@ async function wipeAllCloudDatabaseData() {
     return;
   }
 
-  showToast('Iniciando limpeza total do banco de dados...', 'info');
+  showDbSyncLoader('Resetando Banco', 'Limpando dados na nuvem e restaurando o ambiente Crdev...');
 
   try {
     const headers = SupabaseSyncEngine.getHeaders();
@@ -5091,6 +5321,7 @@ async function wipeAllCloudDatabaseData() {
     }, 1500);
 
   } catch (e) {
+    hideDbSyncLoader();
     console.error(e);
     showToast('Falha catastrófica ao resetar banco de dados: ' + e.message, 'error');
   }
